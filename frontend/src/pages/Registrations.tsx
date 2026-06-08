@@ -324,7 +324,7 @@ export const Registrations: React.FC = () => {
                       <span className="font-medium text-zinc-800">{reg.refrigerant_name}</span>
                       {reg.cylinder_id && cylinders.length > 0 && (
                         <div className="text-[11px] text-blue-600 font-bold mt-0.5">
-                          Fles: {cylinders.find(c => c.id === reg.cylinder_id)?.serial_number || 'Onbekend'}
+                          Fles: {cylinders.find(c => String(c.id).trim() === String(reg.cylinder_id).trim())?.serial_number || `Onbekend (ID: ${reg.cylinder_id})`}
                         </div>
                       )}
                     </td>
@@ -549,12 +549,21 @@ export const Registrations: React.FC = () => {
                 </label>
                 <select
                   value={mutation}
-                  onChange={(e) => setMutation(e.target.value as any)}
+                  onChange={(e) => {
+                    const val = e.target.value as any;
+                    setMutation(val);
+                    if (val === 'afvoer') {
+                      setReason('vernietiging');
+                    } else if (reason === 'vernietiging' || reason === 'recycling') {
+                      setReason('onderhoud');
+                    }
+                  }}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
                   <option value="toevoeging">Toevoeging (Vullen installatie, vermindert nieuw gas voorraad)</option>
-                  <option value="terugwinning">Terugwinning (Uit installatie naar voorraad/reclaim cilinder)</option>
+                  <option value="terugwinning">Terugwinning (Uit installatie naar voorraad/reclaim voorraad)</option>
                   <option value="afrekening">Afrekening (Verbruikt, vermindert nieuw gas voorraad)</option>
+                  <option value="afvoer">Afvoer (Afvoeren van ingezameld koudemiddel, vermindert reclaim voorraad)</option>
                 </select>
               </div>
 
@@ -568,13 +577,22 @@ export const Registrations: React.FC = () => {
                   onChange={(e) => setReason(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
-                  <option value="onderhoud">Onderhoud / Service</option>
-                  <option value="nieuwbouw">Nieuwbouw / Eerste vulling</option>
-                  <option value="retrofit">Retrofit (Omschakeling)</option>
-                  <option value="lekkage">Lekkage herstel</option>
-                  <option value="buitengebruikstelling">Buitengebruikstelling / Sloop</option>
-                  <option value="vernietiging">Afvoer t.b.v. Vernietiging (Gaat naar Reclaim Cilinder)</option>
-                  <option value="recycling">Afvoer t.b.v. Recycling (Gaat naar Reclaim Cilinder)</option>
+                  {mutation === 'afvoer' ? (
+                    <>
+                      <option value="vernietiging">Vernietiging (Afvoer naar leverancier voor vernietiging)</option>
+                      <option value="recycling">Recycling (Afvoer naar leverancier voor recycling)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="onderhoud">Onderhoud / Service</option>
+                      <option value="nieuwbouw">Nieuwbouw / Eerste vulling</option>
+                      <option value="retrofit">Retrofit (Omschakeling)</option>
+                      <option value="lekkage">Lekkage herstel</option>
+                      <option value="buitengebruikstelling">Buitengebruikstelling / Sloop</option>
+                      <option value="vernietiging">Afvoer t.b.v. Vernietiging (Gaat naar Reclaim Cilinder)</option>
+                      <option value="recycling">Afvoer t.b.v. Recycling (Gaat naar Reclaim Cilinder)</option>
+                    </>
+                  )}
                 </select>
               </div>
 

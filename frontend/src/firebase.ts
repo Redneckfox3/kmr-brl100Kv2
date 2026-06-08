@@ -319,7 +319,9 @@ class DatabaseService {
     let stockDiff = 0;
     let reclaimDiff = 0;
 
-    if (reg.reason === "vernietiging") {
+    if (reg.mutation === "afvoer") {
+      reclaimDiff = -reg.amount_kg;
+    } else if (reg.reason === "vernietiging" || reg.reason === "recycling") {
       if (reg.mutation === "terugwinning") {
         reclaimDiff = reg.amount_kg;
       }
