@@ -96,13 +96,16 @@ export const Cylinders: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const cylData = {
+      const cylData: any = {
         serial_number: serialNumber.trim(),
         refrigerant_id: refrigerantId,
         tare_weight: tare,
-        current_weight: current,
-        cylinder_card: cylinderCard.trim() || undefined
+        current_weight: current
       };
+
+      if (cylinderCard.trim()) {
+        cylData.cylinder_card = cylinderCard.trim();
+      }
 
       if (editingId) {
         await dbService.updateCylinder(editingId, cylData);
