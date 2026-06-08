@@ -1,0 +1,31 @@
+# Python-specific ignores
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+ENV/
+env/
+.env
+.venv
+*.db
+*.sqlite3
+
+# Node-specific ignores
+node_modules/
+dist/
+dist-ssr/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor/System ignores
+.vscode/
+.idea/
+.DS_Store
+*.suo
+Thumbs.db
+
+# Docker-specific ignores
+.docker/
