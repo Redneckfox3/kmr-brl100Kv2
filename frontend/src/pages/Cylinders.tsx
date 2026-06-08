@@ -167,7 +167,9 @@ export const Cylinders: React.FC = () => {
                 ) : (
                   cylinders.map((cyl) => {
                     const ref = refrigerants.find(r => r.id === cyl.refrigerant_id);
-                    const netto = cyl.current_weight - cyl.tare_weight;
+                    const tare = typeof cyl.tare_weight === 'number' ? cyl.tare_weight : parseFloat(cyl.tare_weight || '0') || 0;
+                    const current = typeof cyl.current_weight === 'number' ? cyl.current_weight : parseFloat(cyl.current_weight || '0') || 0;
+                    const netto = current - tare;
                     return (
                       <tr key={cyl.id} className="hover:bg-zinc-50/50 transition-colors">
                         <td className="px-6 py-4 font-mono font-bold text-zinc-900">{cyl.serial_number}</td>
@@ -176,8 +178,8 @@ export const Cylinders: React.FC = () => {
                             {ref ? ref.name : 'Onbekend'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right font-mono text-zinc-600">{cyl.tare_weight.toFixed(2)} kg</td>
-                        <td className="px-6 py-4 text-right font-mono text-zinc-900 font-bold">{cyl.current_weight.toFixed(2)} kg</td>
+                        <td className="px-6 py-4 text-right font-mono text-zinc-600">{tare.toFixed(2)} kg</td>
+                        <td className="px-6 py-4 text-right font-mono text-zinc-900 font-bold">{current.toFixed(2)} kg</td>
                         <td className="px-6 py-4 text-right font-mono text-emerald-600 font-black">
                           {netto.toFixed(2)} kg
                         </td>
