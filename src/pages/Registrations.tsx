@@ -1,0 +1,558 @@
+import React, { useEffect, useState } from 'react';
+import { dbService, Refrigerant, Registration } from '../firebase';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { 
+  Plus, Edit2, Trash2, X, ClipboardList, Info, 
+  ArrowUpRight, ArrowDownRight, Search, Calendar, ChevronDown, Download
+} from 'lucide-react';
+
+export const Registrations: React.FC = () => {
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [refrigerants, setRefrigerants] = useState<Refrigerant[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Search and filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRef, setSelectedRef] = useState('all');
+  const [selectedMutation, setSelectedMutation] = useState('all');
+
+  // Form / Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form fields
+  const [installationId, setInstallationId] = useState('');
+  const [installationType, setInstallationType] = useState('Commerciële koeling'); // Default based on Excel
+  const [nominalChargeKg, setNominalChargeKg] = useState('');
+  const [refrigerantId, setRefrigerantId] = useState('');
+  const [amountKg, setAmountKg] = useState('');
+  const [mutation, setMutation] = useState<'toevoeging' | 'afrekening' | 'terugwinning' | 'afvoer' | 'inkoop'>('toevoeging');
+  const [reason, setReason] = useState('onderhoud');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const refs = await dbService.getRefrigerants();
+      const regs = await dbService.getRegistrations();
+      setRefrigerants(refs);
+      setRegistrations(regs);
+      if (refs.length > 0) {
+        setRefrigerantId(refs[0].id);
+      }
+    } catch (e) {
+      console.error("Error loading registrations data:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenAddModal = () => {
+    setEditingId(null);
+    setInstallationId('');
+    setInstallationType('Commerciële koeling');
+    setNominalChargeKg('');
+    if (refrigerants.length > 0) {
+      setRefrigerantId(refrigerants[0].id);
+    }
+    setAmountKg('');
+    setMutation('toevoeging');
+    setReason('onderhoud');
+    setDate(new Date().toISOString().split('T')[0]);
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (reg: Registration) => {
+    setEditingId(reg.id);
+    setInstallationId(reg.installation_id);
+    setInstallationType(reg.installation_type || 'Commerciële koeling');
+    setNominalChargeKg(reg.nominal_charge_kg ? reg.nominal_charge_kg.toString() : '');
+    setRefrigerantId(reg.refrigerant_id);
+    setAmountKg(reg.amount_kg.toString());
+    setMutation(reg.mutation);
+    setReason(reg.reason);
+    setDate(reg.date);
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("Weet u zeker dat u deze registratie wilt verwijderen? De cilindervoorraad wordt dienovereenkomstig gecorrigeerd.")) {
+      try {
+        await dbService.deleteRegistration(id);
+        await loadData();
+      } catch (e: any) {
+        alert("Fout bij verwijderen: " + e.message);
+      }
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!installationId.trim()) return setError("Vul een Installatie ID in.");
+    if (!amountKg || parseFloat(amountKg) <= 0) return setError("Vul een geldige hoeveelheid in kg in (groter dan 0).");
+    if (!refrigerantId) return setError("Selecteer een koudemiddel.");
+
+    setSubmitting(true);
+    setError(null);
+
+    const data: any = {
+      installation_id: installationId.trim(),
+      refrigerant_id: refrigerantId,
+      amount_kg: parseFloat(amountKg),
+      mutation,
+      reason,
+      date
+    };
+
+    if (installationType) {
+      data.installation_type = installationType;
+    }
+    if (nominalChargeKg) {
+      data.nominal_charge_kg = parseFloat(nominalChargeKg);
+    }
+
+    try {
+      if (editingId) {
+        await dbService.updateRegistration(editingId, data);
+      } else {
+        await dbService.addRegistration(data);
+      }
+      setIsModalOpen(false);
+      await loadData();
+    } catch (e: any) {
+      setError(e.message || "Er is een fout opgetreden bij het opslaan.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Filter registrations
+  const filteredRegistrations = registrations.filter((reg) => {
+    const matchesSearch = reg.installation_id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          (reg.reason && reg.reason.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesRef = selectedRef === 'all' || reg.refrigerant_id === selectedRef;
+    const matchesMutation = selectedMutation === 'all' || reg.mutation === selectedMutation;
+    return matchesSearch && matchesRef && matchesMutation;
+  });
+
+  const getSelectedRefrigerantGwp = () => {
+    const ref = refrigerants.find(r => r.id === refrigerantId);
+    return ref ? ref.gwp : 0;
+  };
+
+  const calculateCo2Preview = () => {
+    const gwp = getSelectedRefrigerantGwp();
+    const kg = parseFloat(amountKg) || 0;
+    return ((kg * gwp) / 1000).toFixed(2);
+  };
+
+  const handleExportPDF = () => {
+    // Initialize jsPDF in landscape mode ('l')
+    const doc = new jsPDF('l', 'mm', 'a4');
+
+    doc.setFontSize(18);
+    doc.text('Installatie Registraties', 14, 22);
+
+    const tableColumn = [
+      "Datum", "Installatie ID", "Type", "Nominale Vulling",
+      "Koudemiddel", "Mutatie", "Hoeveelheid", "CO2 eq.", "Reden"
+    ];
+    const tableRows: any[] = [];
+
+    filteredRegistrations.forEach(reg => {
+      const regData = [
+        reg.date,
+        reg.installation_id,
+        reg.installation_type || '-',
+        reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-',
+        reg.refrigerant_name || '-',
+        reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1),
+        `${reg.amount_kg.toFixed(2)} kg`,
+        reg.co2_equivalent ? `${reg.co2_equivalent.toFixed(2)} Ton` : '-',
+        reg.reason.charAt(0).toUpperCase() + reg.reason.slice(1)
+      ];
+      tableRows.push(regData);
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 40,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [39, 39, 42] } // zinc-800
+    });
+
+    doc.save(`registraties_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-zinc-900 tracking-tight">Installatie Registraties</h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Beheer en registreer handelingen (vulling, terugwinning, etc.) op installatieniveau.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 self-start sm:self-center">
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
+          >
+            <Download className="h-4 w-4" />
+            Exporteer PDF
+          </button>
+          <button
+            onClick={handleOpenAddModal}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm hover:shadow transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            Registratie Toevoegen
+          </button>
+        </div>
+      </div>
+
+      {/* Info Banner */}
+      <div className="bg-zinc-100 border border-zinc-200 rounded-xl p-4 flex items-start gap-3">
+        <Info className="h-5 w-5 text-zinc-600 mt-0.5 flex-shrink-0" />
+        <p className="text-sm text-zinc-600 leading-relaxed">
+          <strong>Tip over cilindervoorraad:</strong> Wanneer u een <strong className="text-zinc-900">toevoeging</strong> of <strong className="text-zinc-900">afrekening</strong> registreert, wordt deze hoeveelheid automatisch van uw cylinders (voorraad) afgetrokken. Bij een <strong className="text-zinc-900">terugwinning</strong> wordt de hoeveelheid weer bij de cilindervoorraad opgeteld.
+        </p>
+      </div>
+
+      {/* Search & Filters */}
+      <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Search input */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+          <input
+            type="text"
+            placeholder="Zoek op Installatie ID of reden..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 pr-4 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Refrigerant Filter */}
+        <div className="relative">
+          <select
+            value={selectedRef}
+            onChange={(e) => setSelectedRef(e.target.value)}
+            className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            <option value="all">Alle Koudemiddelen</option>
+            {refrigerants.map((ref) => (
+              <option key={ref.id} value={ref.id}>{ref.name}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+        </div>
+
+        {/* Mutation Filter */}
+        <div className="relative">
+          <select
+            value={selectedMutation}
+            onChange={(e) => setSelectedMutation(e.target.value)}
+            className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            <option value="all">Alle Mutaties</option>
+            <option value="toevoeging">Toevoeging (Vullen)</option>
+            <option value="terugwinning">Terugwinning</option>
+            <option value="afrekening">Afrekening</option>
+            <option value="afvoer">Afvoer</option>
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Registrations List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      ) : filteredRegistrations.length === 0 ? (
+        <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
+          <ClipboardList className="h-12 w-12 text-zinc-300 mx-auto mb-3" />
+          <p className="text-zinc-500 font-medium">Geen registraties gevonden.</p>
+          <p className="text-zinc-400 text-sm mt-1">Pas uw zoekfilters aan of voeg een nieuwe registratie toe.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
+                  <th className="px-6 py-4">Datum</th>
+                  <th className="px-6 py-4">Installatie ID</th>
+                  <th className="px-6 py-4">Type</th>
+                  <th className="px-6 py-4">Nominale Vulling</th>
+                  <th className="px-6 py-4">Koudemiddel</th>
+                  <th className="px-6 py-4">Mutatie</th>
+                  <th className="px-6 py-4">Hoeveelheid</th>
+                  <th className="px-6 py-4">GWP / CO2 eq.</th>
+                  <th className="px-6 py-4">Reden</th>
+                  <th className="px-6 py-4 text-right">Acties</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 text-sm">
+                {filteredRegistrations.map((reg) => (
+                  <tr key={reg.id} className="hover:bg-zinc-50/50 transition-colors">
+                    <td className="px-6 py-4 text-zinc-500 font-mono text-xs">{reg.date}</td>
+                    <td className="px-6 py-4 font-bold text-zinc-900">{reg.installation_id}</td>
+                    <td className="px-6 py-4 text-zinc-600">{reg.installation_type || '-'}</td>
+                    <td className="px-6 py-4 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-'}</td>
+                    <td className="px-6 py-4">
+                      <span className="font-medium text-zinc-800">{reg.refrigerant_name}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        reg.mutation === 'toevoeging' || reg.mutation === 'afrekening'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-emerald-50 text-emerald-700'
+                      }`}>
+                        {reg.mutation === 'toevoeging' || reg.mutation === 'afrekening' ? (
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        ) : (
+                          <ArrowDownRight className="h-3.5 w-3.5" />
+                        )}
+                        {reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-mono font-bold text-zinc-900">{reg.amount_kg.toFixed(2)} kg</td>
+                    <td className="px-6 py-4">
+                      <div className="text-xs text-zinc-500 font-mono">
+                        <div>GWP: {reg.co2_equivalent ? ((reg.co2_equivalent * 1000) / reg.amount_kg).toFixed(0) : 'N/B'}</div>
+                        <div className="font-bold text-purple-600">{reg.co2_equivalent?.toFixed(2)} Ton CO₂</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600 italic">
+                      {reg.reason.charAt(0).toUpperCase() + reg.reason.slice(1)}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleOpenEditModal(reg)}
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition-colors"
+                          title="Bewerken"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(reg.id)}
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-red-600 hover:bg-zinc-100 transition-colors"
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Create / Edit Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-zinc-200 max-w-lg w-full overflow-hidden animate-scale-up">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50">
+              <h2 className="text-lg font-bold text-zinc-900">
+                {editingId ? 'Registratie Bewerken' : 'Nieuwe Registratie Toevoegen'}
+              </h2>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 rounded-md p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">
+                  {error}
+                </div>
+              )}
+
+              {/* Installatie ID */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Installatie ID *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Bijv. 3981MH-101-001"
+                  value={installationId}
+                  onChange={(e) => setInstallationId(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Installatie Type */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Type installatie (IPCC-sector)
+                </label>
+                <select
+                  value={installationType}
+                  onChange={(e) => setInstallationType(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="Commerciële koeling">Commerciële koeling</option>
+                  <option value="Transportkoeling">Transportkoeling</option>
+                  <option value="Industriële koeling">Industriële koeling</option>
+                  <option value="Stationaire airco’s">Stationaire airco’s</option>
+                </select>
+              </div>
+
+              {/* Nominale vulling */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Nominale vulling (kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="Bijv. 17.5"
+                  value={nominalChargeKg}
+                  onChange={(e) => setNominalChargeKg(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Datum *
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                  <input
+                    type="date"
+                    required
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="pl-9 pr-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Refrigerant Selector */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Koudemiddel *
+                </label>
+                <select
+                  value={refrigerantId}
+                  onChange={(e) => setRefrigerantId(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  {refrigerants.map((ref) => (
+                    <option key={ref.id} value={ref.id}>
+                      {ref.name} (GWP: {ref.gwp}, Voorraad: {ref.current_stock_kg.toFixed(1)} kg)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Amount kg */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Hoeveelheid (kg) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="Bijv. 4.5"
+                  value={amountKg}
+                  onChange={(e) => setAmountKg(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Mutation */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Mutatie *
+                </label>
+                <select
+                  value={mutation}
+                  onChange={(e) => setMutation(e.target.value as any)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="toevoeging">Toevoeging (Vullen installatie, vermindert nieuw gas voorraad)</option>
+                  <option value="terugwinning">Terugwinning (Uit installatie naar voorraad/reclaim cilinder)</option>
+                  <option value="afrekening">Afrekening (Verbruikt, vermindert nieuw gas voorraad)</option>
+                </select>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Reden *
+                </label>
+                <select
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="onderhoud">Onderhoud / Service</option>
+                  <option value="nieuwbouw">Nieuwbouw / Eerste vulling</option>
+                  <option value="retrofit">Retrofit (Omschakeling)</option>
+                  <option value="lekkage">Lekkage herstel</option>
+                  <option value="buitengebruikstelling">Buitengebruikstelling / Sloop</option>
+                  <option value="vernietiging">Afvoer t.b.v. Vernietiging (Gaat naar Reclaim Cilinder)</option>
+                  <option value="recycling">Afvoer t.b.v. Recycling (Gaat naar Reclaim Cilinder)</option>
+                </select>
+              </div>
+
+              {/* Live Preview CO2 Equivalent */}
+              {refrigerantId && amountKg && parseFloat(amountKg) > 0 && (
+                <div className="bg-purple-50 text-purple-800 p-3.5 rounded-lg border border-purple-100 text-xs flex justify-between items-center font-mono">
+                  <span>Berekend CO₂-equivalent:</span>
+                  <strong className="text-sm text-purple-900">{calculateCo2Preview()} Ton CO₂</strong>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-100 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-sm rounded-lg transition-colors"
+                >
+                  Annuleren
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {submitting ? 'Opslaan...' : 'Opslaan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

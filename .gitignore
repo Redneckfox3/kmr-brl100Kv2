@@ -1,31 +1,41 @@
-# Python-specific ignores
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-ENV/
-env/
-.env
-.venv
-*.db
-*.sqlite3
-
-# Node-specific ignores
-node_modules/
-dist/
-dist-ssr/
+# Logs and debug files
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+firebase-debug.log*
+firebase-debug.*.log*
 
-# Editor/System ignores
+# Dependencies and build directories
+node_modules/
+dist/
+dist-ssr/
+build/Release
+
+# Firebase cache
+.firebase/
+.dataconnect
+
+# IDEs and OS files
 .vscode/
 .idea/
 .DS_Store
 *.suo
 Thumbs.db
 
-# Docker-specific ignores
-.docker/
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python files
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+ENV/
+env/
+.venv
