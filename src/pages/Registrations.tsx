@@ -507,34 +507,34 @@ export const Registrations: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
-                  <th className="px-6 py-4">Datum</th>
-                  <th className="px-6 py-4">Installatie ID</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Nominale Vulling</th>
-                  <th className="px-6 py-4">Koudemiddel</th>
-                  <th className="px-6 py-4">Mutatie</th>
-                  <th className="px-6 py-4">Hoeveelheid</th>
-                  <th className="px-6 py-4">GWP / CO2 eq.</th>
-                  <th className="px-6 py-4">Reden</th>
-                  <th className="px-6 py-4 text-right">Acties</th>
+                <tr className="sticky top-0 bg-zinc-50 z-10 border-b border-zinc-200 text-2xs font-bold text-zinc-500 uppercase tracking-wider shadow-[0_1px_0_rgba(228,228,231,1)]">
+                  <th className="px-4 py-3">Datum</th>
+                  <th className="px-4 py-3">Installatie ID</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Nominale Vulling</th>
+                  <th className="px-4 py-3">Koudemiddel</th>
+                  <th className="px-4 py-3">Mutatie</th>
+                  <th className="px-4 py-3">Hoeveelheid</th>
+                  <th className="px-4 py-3">GWP / CO2 eq.</th>
+                  <th className="px-4 py-3">Reden</th>
+                  <th className="px-4 py-3 text-right">Acties</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 text-sm">
                 {filteredRegistrations.map((reg) => (
                   <tr key={reg.id} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-6 py-4 text-zinc-500 font-mono text-xs">{reg.date}</td>
-                    <td className="px-6 py-4 font-bold text-zinc-900">{reg.installation_id}</td>
-                    <td className="px-6 py-4 text-zinc-600">{reg.installation_type || '-'}</td>
-                    <td className="px-6 py-4 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-'}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 text-zinc-500 font-mono text-xs">{reg.date}</td>
+                    <td className="px-4 py-3 font-bold text-zinc-900">{reg.installation_id}</td>
+                    <td className="px-4 py-3 text-zinc-600">{reg.installation_type || '-'}</td>
+                    <td className="px-4 py-3 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-'}</td>
+                    <td className="px-4 py-3">
                       <span className="font-medium text-zinc-800">{reg.refrigerant_name}</span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                         reg.mutation === 'toevoeging' || reg.mutation === 'afrekening'
                           ? 'bg-amber-50 text-amber-700'
                           : 'bg-emerald-50 text-emerald-700'
@@ -547,17 +547,17 @@ export const Registrations: React.FC = () => {
                         {reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-zinc-900">{reg.amount_kg.toFixed(2)} kg</td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 font-mono font-bold text-zinc-900">{reg.amount_kg.toFixed(3)} kg</td>
+                    <td className="px-4 py-3">
                       <div className="text-xs text-zinc-500 font-mono">
                         <div>GWP: {reg.co2_equivalent ? ((reg.co2_equivalent * 1000) / reg.amount_kg).toFixed(0) : 'N/B'}</div>
                         <div className="font-bold text-purple-600">{reg.co2_equivalent?.toFixed(2)} Ton CO₂</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-zinc-600 italic">
+                    <td className="px-4 py-3 text-zinc-600 italic">
                       {reg.reason.charAt(0).toUpperCase() + reg.reason.slice(1)}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleOpenEditModal(reg)}
