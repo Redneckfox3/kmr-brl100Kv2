@@ -661,7 +661,7 @@ export const Registrations: React.FC = () => {
                       onChange={(e) => {
                         setCylinderId(e.target.value);
                         const cyl = cylinders.find(c => c.id === e.target.value);
-                        if (cyl && cyl.refrigerant_id) {
+                        if (cyl && cyl.refrigerant_id && cyl.type !== 'mix') {
                           setRefrigerantId(cyl.refrigerant_id);
                         }
                       }}

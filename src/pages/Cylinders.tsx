@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { dbService, Refrigerant, Cylinder } from '../firebase';
+import { dbService, Refrigerant, Cylinder, Registration } from '../firebase';
 import { 
   Plus, Edit2, Trash2, X, ClipboardList, Info, 
   Search, Calendar, ChevronDown, CheckCircle2, AlertTriangle, AlertCircle, ArrowRightLeft, QrCode,
@@ -33,7 +33,41 @@ const findPreferredCamera = (devices: any[]) => {
 export const Cylinders: React.FC = () => {
   const [cylinders, setCylinders] = useState<Cylinder[]>([]);
   const [refrigerants, setRefrigerants] = useState<Refrigerant[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transRefrigerantId, setTransRefrigerantId] = useState('');
+
+  // Helper to determine dynamic gas contents of any cylinder based on audit trail
+  const getCylinderContents = (cylId: string) => {
+    const contents: { [refId: string]: number } = {};
+    const cylRegs = registrations.filter(r => r.cylinder_id === cylId);
+    
+    cylRegs.forEach(reg => {
+      const amount = reg.amount_kg;
+      const refId = reg.refrigerant_id;
+      if (!contents[refId]) contents[refId] = 0;
+      
+      if (reg.mutation === 'terugwinning' || reg.mutation === 'inkoop') {
+        contents[refId] += amount;
+      } else if (reg.mutation === 'toevoeging' || reg.mutation === 'afrekening' || reg.mutation === 'afvoer') {
+        contents[refId] -= amount;
+      }
+    });
+
+    const result: { refId: string; name: string; weight: number }[] = [];
+    Object.keys(contents).forEach(refId => {
+      const weight = contents[refId];
+      if (weight > 0.001) {
+        const ref = refrigerants.find(r => r.id === refId);
+        result.push({
+          refId,
+          name: ref ? ref.name : 'Mengsel',
+          weight: Number(weight.toFixed(2))
+        });
+      }
+    });
+    return result;
+  };
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -253,8 +287,10 @@ export const Cylinders: React.FC = () => {
     try {
       const refs = await dbService.getRefrigerants();
       const cyls = await dbService.getCylinders();
+      const regs = await dbService.getRegistrations();
       setRefrigerants(refs);
       setCylinders(cyls);
+      setRegistrations(regs);
       if (refs.length > 0) {
         setRefrigerantId(refs[0].id);
       }
@@ -307,6 +343,12 @@ export const Cylinders: React.FC = () => {
     setTransAmount('');
     setTransMutation('toevoeging');
     setTransReason('onderhoud');
+    // Set active koudemiddel for transaction
+    if (cyl.type === 'mix') {
+      setTransRefrigerantId(refrigerants.length > 0 ? refrigerants[0].id : '');
+    } else {
+      setTransRefrigerantId(cyl.refrigerant_id);
+    }
     setError(null);
     setIsTransModalOpen(true);
   };
@@ -319,6 +361,50 @@ export const Cylinders: React.FC = () => {
       } catch (e: any) {
         alert("Fout bij verwijderen: " + e.message);
       }
+    }
+  };
+
+  const handleEmptyMixCylinder = async (cyl: Cylinder) => {
+    const contents = getCylinderContents(cyl.id);
+    if (contents.length === 0) {
+      alert("Deze mixfles is al leeg!");
+      return;
+    }
+
+    const confirmEmpty = window.confirm(
+      `Weet u zeker dat u mixfles ${cyl.cylinder_number} wilt legen t.b.v. vernietiging? Dit zal automatisch afvoer-registraties aanmaken voor alle aanwezige gassen:\n${contents.map(c => `- ${c.name}: ${c.weight} kg`).join('\n')}`
+    );
+
+    if (!confirmEmpty) return;
+
+    setLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      for (const item of contents) {
+        await dbService.addRegistration({
+          date: today,
+          installation_id: "AFVOER-MIX-VERNIETIGING",
+          refrigerant_id: item.refId,
+          amount_kg: item.weight,
+          mutation: "afvoer",
+          reason: "buitengebruikstelling",
+          cylinder_id: cyl.id
+        });
+      }
+
+      await dbService.updateCylinder(cyl.id, {
+        ...cyl,
+        status: 'retour_leverancier',
+        location: 'Ingeleverd voor vernietiging'
+      });
+
+      await loadData();
+      alert("Mixfles succesvol leeggemaakt en status bijgewerkt naar 'Retour leverancier'!");
+    } catch (e: any) {
+      alert("Fout bij het leegmaken van de mixfles: " + e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -367,6 +453,8 @@ export const Cylinders: React.FC = () => {
     if (!transCylinder) return;
     if (!transInstId.trim()) return setError("Vul een Installatie ID in.");
     if (!transAmount || parseFloat(transAmount) <= 0) return setError("Vul een geldige hoeveelheid in.");
+    const finalRefId = transCylinder.type === 'mix' ? transRefrigerantId : transCylinder.refrigerant_id;
+    if (!finalRefId) return setError("Selecteer een geldig koudemiddel.");
 
     setSubmitting(true);
     setError(null);
@@ -375,13 +463,14 @@ export const Cylinders: React.FC = () => {
       await dbService.addRegistration({
         date: transDate,
         installation_id: transInstId.trim(),
-        refrigerant_id: transCylinder.refrigerant_id,
+        refrigerant_id: finalRefId,
         amount_kg: parseFloat(transAmount),
         mutation: transMutation,
         reason: transReason,
         cylinder_id: transCylinder.id
       });
       setIsTransModalOpen(false);
+      await loadData();
       alert("Verbruik succesvol geregistreerd!");
     } catch (e: any) {
       setError(e.message || "Er is een fout opgetreden bij het registreren van verbruik.");
@@ -544,7 +633,46 @@ export const Cylinders: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 font-mono text-zinc-600">
                         <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(1) : '0.0'} kg</div>
-                        <div className="text-xs text-zinc-400">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(1) : '0.0'} kg</div>
+                        <div className="text-xs text-zinc-400 mb-1">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(1) : '0.0'} kg</div>
+                        
+                        {/* Dynamic gas contents listing with real-time audit weight calculation */}
+                        {(() => {
+                          const contents = getCylinderContents(cyl.id);
+                          const totalContent = contents.reduce((acc, c) => acc + c.weight, 0);
+                          const grossWeight = (cyl.tare_weight_kg || 0) + totalContent;
+                          const fillPercent = cyl.max_capacity_kg > 0 ? (totalContent / cyl.max_capacity_kg) * 100 : 0;
+
+                          return (
+                            <div className="mt-2 pt-2 border-t border-dashed border-zinc-200 space-y-1">
+                              {contents.length > 0 ? (
+                                <>
+                                  <div className="text-2xs font-bold text-zinc-500 uppercase tracking-wider">Inhoud:</div>
+                                  <div className="space-y-0.5 pl-1.5 border-l-2 border-blue-500">
+                                    {contents.map((c, idx) => (
+                                      <div key={idx} className="text-2xs text-zinc-700 font-medium">
+                                        {c.name}: <span className="font-bold text-zinc-900">{c.weight.toFixed(2)} kg</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="text-2xs font-semibold text-purple-600 mt-1 flex items-center justify-between">
+                                    <span>Bruto: <span className="font-bold">{grossWeight.toFixed(2)} kg</span></span>
+                                    <span className="text-zinc-400 font-normal">{fillPercent.toFixed(0)}% gevuld</span>
+                                  </div>
+                                  {cyl.max_capacity_kg > 0 && (
+                                    <div className="w-full bg-zinc-100 rounded-full h-1 overflow-hidden mt-1">
+                                      <div 
+                                        className={`h-full rounded-full transition-all ${fillPercent > 90 ? 'bg-red-500' : fillPercent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                        style={{ width: `${Math.min(fillPercent, 100)}%` }}
+                                      ></div>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-2xs italic text-zinc-400">Leeg / Ongebruikt</div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1.5">
@@ -561,37 +689,51 @@ export const Cylinders: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex flex-col md:flex-row items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenTransModal(cyl)}
                             className="p-1.5 rounded-md text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1"
                             title="Registreer verbruik uit deze cilinder"
                           >
                             <ArrowRightLeft className="h-4 w-4" />
-                            <span className="text-xs font-medium hidden md:inline">Verbruik</span>
+                            <span className="text-xs font-semibold">Verbruik</span>
                           </button>
-                          <button
-                            onClick={() => setActiveQrCylinder(cyl)}
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
-                            title="Bekijk & print QR-code van deze cilinder"
-                          >
-                            <QrCode className="h-4 w-4" />
-                          </button>
-                          <div className="w-px h-4 bg-zinc-200 mx-1"></div>
-                          <button
-                            onClick={() => handleOpenEditModal(cyl)}
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition-colors"
-                            title="Bewerken"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(cyl.id)}
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-red-600 hover:bg-zinc-100 transition-colors"
-                            title="Verwijderen"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+
+                          {/* Quick Legen Button for Mixfles with some contents */}
+                          {cyl.type === 'mix' && getCylinderContents(cyl.id).length > 0 && (
+                            <button
+                              onClick={() => handleEmptyMixCylinder(cyl)}
+                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1"
+                              title="Mixfles leegmaken voor vernietiging"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="text-xs font-semibold">Legen</span>
+                            </button>
+                          )}
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setActiveQrCylinder(cyl)}
+                              className="p-1.5 rounded-md text-zinc-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                              title="Bekijk & print QR-code van deze cilinder"
+                            >
+                              <QrCode className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditModal(cyl)}
+                              className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition-colors"
+                              title="Bewerken"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(cyl.id)}
+                              className="p-1.5 rounded-md text-zinc-500 hover:text-red-600 hover:bg-zinc-100 transition-colors"
+                              title="Verwijderen"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -649,7 +791,15 @@ export const Cylinders: React.FC = () => {
                   </label>
                   <select
                     value={type}
-                    onChange={(e) => setType(e.target.value as any)}
+                    onChange={(e) => {
+                      const newType = e.target.value as any;
+                      setType(newType);
+                      if (newType === 'mix') {
+                        setRefrigerantId('mix');
+                      } else if (refrigerantId === 'mix' && refrigerants.length > 0) {
+                        setRefrigerantId(refrigerants[0].id);
+                      }
+                    }}
                     className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                   >
                     <option value="nieuw">Nieuw Gas</option>
@@ -657,6 +807,7 @@ export const Cylinders: React.FC = () => {
                     <option value="recycling">Recycling</option>
                     <option value="huur">Huurcilinder</option>
                     <option value="eigendom">Eigendomcilinder</option>
+                    <option value="mix">Mixfles (Diverse gassen)</option>
                   </select>
                 </div>
 
@@ -666,13 +817,18 @@ export const Cylinders: React.FC = () => {
                     Koudemiddel *
                   </label>
                   <select
+                    disabled={type === 'mix'}
                     value={refrigerantId}
                     onChange={(e) => setRefrigerantId(e.target.value)}
-                    className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
                   >
-                    {refrigerants.map((ref) => (
-                      <option key={ref.id} value={ref.id}>{ref.name}</option>
-                    ))}
+                    {type === 'mix' ? (
+                      <option value="mix">Mengsel (Vernietiging)</option>
+                    ) : (
+                      refrigerants.map((ref) => (
+                        <option key={ref.id} value={ref.id}>{ref.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>
@@ -879,6 +1035,24 @@ export const Cylinders: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* Refrigerant Selector (Only shown if Cylinder is of type 'mix') */}
+              {transCylinder.type === 'mix' && (
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                    Koudemiddel voor mixfles *
+                  </label>
+                  <select
+                    value={transRefrigerantId}
+                    onChange={(e) => setTransRefrigerantId(e.target.value)}
+                    className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    {refrigerants.map((ref) => (
+                      <option key={ref.id} value={ref.id}>{ref.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">

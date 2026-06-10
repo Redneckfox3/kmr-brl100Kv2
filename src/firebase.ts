@@ -23,7 +23,7 @@ export interface Refrigerant {
 export interface Cylinder {
   id: string;
   cylinder_number: string; // Barcode or unique physical ID
-  type: 'nieuw' | 'reclaim' | 'recycling' | 'huur' | 'eigendom'; 
+  type: 'nieuw' | 'reclaim' | 'recycling' | 'huur' | 'eigendom' | 'mix'; 
   refrigerant_id: string;
   refrigerant_name?: string;
   tare_weight_kg: number; // Empty weight
