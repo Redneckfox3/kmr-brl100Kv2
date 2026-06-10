@@ -300,7 +300,7 @@ class DatabaseService {
           list.push({ 
             id: docSnap.id, 
             ...data,
-            refrigerant_name: ref ? ref.name : "Onbekend"
+            refrigerant_name: ref ? ref.name : (data.refrigerant_id === 'mix' ? "Mengsel (Vernietiging)" : "Onbekend")
           } as Cylinder);
         });
         return list.sort((a, b) => new Date(a.inspection_date).getTime() - new Date(b.inspection_date).getTime());
@@ -318,22 +318,28 @@ class DatabaseService {
       const ref = refMap.get(cyl.refrigerant_id);
       return {
         ...cyl,
-        refrigerant_name: ref ? ref.name : "Onbekend"
+        refrigerant_name: ref ? ref.name : (cyl.refrigerant_id === 'mix' ? "Mengsel (Vernietiging)" : "Onbekend")
       };
     }).sort((a, b) => new Date(a.inspection_date).getTime() - new Date(b.inspection_date).getTime());
   }
 
   public async addCylinder(cyl: Omit<Cylinder, "id" | "refrigerant_name">): Promise<Cylinder> {
     const refrigerants = await this.getRefrigerants();
-    const ref = refrigerants.find(r => r.id === cyl.refrigerant_id);
-    if (!ref) throw new Error("Koudemiddel niet gevonden");
+    const isMix = cyl.refrigerant_id === 'mix' || cyl.type === 'mix';
+    const ref = isMix ? null : refrigerants.find(r => r.id === cyl.refrigerant_id);
+    
+    if (!isMix && !ref) throw new Error("Koudemiddel niet gevonden");
 
-    const fullCylData = { ...cyl, created_at: new Date().toISOString() };
+    const fullCylData = { 
+      ...cyl, 
+      refrigerant_id: isMix ? 'mix' : cyl.refrigerant_id,
+      created_at: new Date().toISOString() 
+    };
 
     if (this.isFirebase && this.db) {
       try {
         const docRef = await addDoc(collection(this.db, "cylinders"), fullCylData);
-        return { id: docRef.id, ...fullCylData, refrigerant_name: ref.name };
+        return { id: docRef.id, ...fullCylData, refrigerant_name: isMix ? "Mengsel (Vernietiging)" : ref!.name };
       } catch (e) {
         console.error("Firebase add error:", e);
         throw new Error("Fout bij opslaan cilinder in Firebase: " + (e as Error).message);
@@ -348,7 +354,7 @@ class DatabaseService {
     };
     list.push(newCyl);
     localStorage.setItem(STORAGE_KEY_CYLINDERS, JSON.stringify(list));
-    return { ...newCyl, refrigerant_name: ref.name };
+    return { ...newCyl, refrigerant_name: isMix ? "Mengsel (Vernietiging)" : ref!.name };
   }
 
   public async updateCylinder(id: string, updates: Partial<Cylinder>): Promise<void> {
