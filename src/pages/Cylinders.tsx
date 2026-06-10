@@ -2,8 +2,33 @@ import React, { useEffect, useState } from 'react';
 import { dbService, Refrigerant, Cylinder } from '../firebase';
 import { 
   Plus, Edit2, Trash2, X, ClipboardList, Info, 
-  Search, Calendar, ChevronDown, CheckCircle2, AlertTriangle, AlertCircle, ArrowRightLeft
+  Search, Calendar, ChevronDown, CheckCircle2, AlertTriangle, AlertCircle, ArrowRightLeft, QrCode,
+  RefreshCw
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Html5Qrcode } from 'html5-qrcode';
+
+// Helper to determine the best back/scanning camera on launch
+const findPreferredCamera = (devices: any[]) => {
+  // First priority: look for a camera that is explicitly labeled back/rear but is NOT a selfie/front camera
+  const explicitBack = devices.find(device => {
+    const label = device.label.toLowerCase();
+    const isFront = label.includes('front') || label.includes('selfie') || label.includes('user') || label.includes('camera 1');
+    const isBack = label.includes('back') || label.includes('rear') || label.includes('omgeving') || label.includes('achter') || label.includes('camera 0');
+    return isBack && !isFront;
+  });
+  if (explicitBack) return explicitBack;
+
+  // Second priority: look for any camera that does not look like a selfie/front camera
+  const nonFront = devices.find(device => {
+    const label = device.label.toLowerCase();
+    return !(label.includes('front') || label.includes('selfie') || label.includes('user') || label.includes('camera 1'));
+  });
+  if (nonFront) return nonFront;
+
+  // Third priority: fallback to the first device listed
+  return devices[0];
+};
 
 export const Cylinders: React.FC = () => {
   const [cylinders, setCylinders] = useState<Cylinder[]>([]);
@@ -39,6 +64,185 @@ export const Cylinders: React.FC = () => {
   const [transAmount, setTransAmount] = useState('');
   const [transMutation, setTransMutation] = useState<'toevoeging' | 'afrekening' | 'terugwinning' | 'afvoer'>('toevoeging');
   const [transReason, setTransReason] = useState('onderhoud');
+
+  // QR & Scan States
+  const [activeQrCylinder, setActiveQrCylinder] = useState<Cylinder | null>(null);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [cameraDevices, setCameraDevices] = useState<any[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [html5QrCodeInstance, setHtml5QrCodeInstance] = useState<Html5Qrcode | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Start or restart the scanner with a specific camera ID
+  const startCamera = async (scanner: Html5Qrcode, cameraIdOrConfig: any) => {
+    if (isTransitioning) return;
+    setIsTransitioning(true);
+    setScanError(null);
+
+    try {
+      if (scanner.isScanning) {
+        await scanner.stop();
+        // Brief pause to allow the hardware sensor to release safely
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      await scanner.start(
+        cameraIdOrConfig,
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        (decodedText) => {
+          // On success
+          const foundCyl = cylinders.find(
+            c => c.id === decodedText || 
+                 c.cylinder_number.toLowerCase() === decodedText.toLowerCase() ||
+                 decodedText.replace(/^kmr-cylinder:/i, '') === c.id ||
+                 decodedText.replace(/^kmr-cylinder:/i, '').toLowerCase() === c.cylinder_number.toLowerCase()
+          );
+
+          if (foundCyl) {
+            scanner.stop().then(() => {
+              setIsScanModalOpen(false);
+              handleOpenTransModal(foundCyl);
+            }).catch(err => {
+              console.error("Error stopping scanner:", err);
+              setIsScanModalOpen(false);
+              handleOpenTransModal(foundCyl);
+            });
+          } else {
+            alert(`Gescande code "${decodedText}" is niet herkend als een geregistreerde cilinder.`);
+          }
+        },
+        () => {
+          // Silent frame scanning
+        }
+      );
+
+      setIsTransitioning(false);
+
+      // If started successfully, retrieve camera devices list if not already retrieved
+      if (cameraDevices.length === 0) {
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setCameraDevices(devices);
+
+            if (typeof cameraIdOrConfig !== 'string') {
+              const preferred = findPreferredCamera(devices);
+              setSelectedCameraId(preferred.id);
+            }
+          }
+        } catch (err) {
+          console.error("Error listing cameras after start:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Error starting camera inside startCamera:", err);
+      setIsTransitioning(false);
+
+      // Self-healing fallback: If starting with facingMode constraint failed,
+      // let's immediately query the device list and start the preferred camera ID!
+      if (typeof cameraIdOrConfig !== 'string') {
+        console.log("FacingMode start failed, trying device list fallback...");
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setCameraDevices(devices);
+
+            const preferred = findPreferredCamera(devices);
+            setSelectedCameraId(preferred.id);
+
+            // Retry startCamera recursively with a brief delay
+            await new Promise(resolve => setTimeout(resolve, 200));
+            await startCamera(scanner, preferred.id);
+            return; // Succeeded fallback!
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback camera start failed too:", fallbackErr);
+        }
+      }
+
+      setScanError("Kan de geselecteerde camera niet starten. Kies eventueel een andere camera in de lijst hieronder.");
+    }
+  };
+
+  const handleCameraChange = async (cameraId: string) => {
+    if (isTransitioning) return;
+    setSelectedCameraId(cameraId);
+    if (html5QrCodeInstance) {
+      setScanError(null);
+      await startCamera(html5QrCodeInstance, cameraId);
+    }
+  };
+
+  const handleToggleCamera = async () => {
+    if (isTransitioning || cameraDevices.length <= 1) return;
+    const currentIndex = cameraDevices.findIndex(d => d.id === selectedCameraId);
+    const nextIndex = (currentIndex + 1) % cameraDevices.length;
+    const nextCamera = cameraDevices[nextIndex];
+    if (nextCamera) {
+      await handleCameraChange(nextCamera.id);
+    }
+  };
+
+  // Initialize camera scanner on scan modal open
+  useEffect(() => {
+    let html5QrCode: Html5Qrcode | null = null;
+
+    if (isScanModalOpen) {
+      setScanError(null);
+      setCameraDevices([]);
+      setSelectedCameraId('');
+
+      // Wait a tiny bit for the DOM element to mount/be ready
+      const timer = setTimeout(() => {
+        try {
+          html5QrCode = new Html5Qrcode("cylinder-scanner-reader", {
+            verbose: false,
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: false
+            }
+          });
+          setHtml5QrCodeInstance(html5QrCode);
+
+          // Get cameras first to select the absolute best hardware camera sensor immediately
+          Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length > 0) {
+              setCameraDevices(devices);
+              const preferred = findPreferredCamera(devices);
+              setSelectedCameraId(preferred.id);
+              if (html5QrCode) {
+                startCamera(html5QrCode, preferred.id);
+              }
+            } else {
+              // Fallback to facingMode if no cameras returned initially
+              if (html5QrCode) {
+                startCamera(html5QrCode, { facingMode: "environment" });
+              }
+            }
+          }).catch(err => {
+            console.warn("Could not list cameras on startup, trying facingMode fallback:", err);
+            if (html5QrCode) {
+              startCamera(html5QrCode, { facingMode: "environment" });
+            }
+          });
+        } catch (e) {
+          console.error("Scanner init error:", e);
+          setScanError("Fout bij het initialiseren van de camera scanner.");
+        }
+      }, 100);
+
+      return () => {
+        clearTimeout(timer);
+        if (html5QrCode && html5QrCode.isScanning) {
+          html5QrCode.stop().catch(err => console.error("Error stopping scanner on cleanup", err));
+        }
+        setHtml5QrCodeInstance(null);
+      };
+    }
+  }, [isScanModalOpen, cylinders]);
 
   useEffect(() => {
     loadData();
@@ -188,14 +392,19 @@ export const Cylinders: React.FC = () => {
 
   // Filter cylinders
   const filteredCylinders = cylinders.filter((cyl) => {
-    const matchesSearch = cyl.cylinder_number.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (cyl.location && cyl.location.toLowerCase().includes(searchTerm.toLowerCase()));
+    const cylNum = cyl.cylinder_number || '';
+    const cylLoc = cyl.location || '';
+    const matchesSearch = cylNum.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          cylLoc.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesRef = selectedRef === 'all' || cyl.refrigerant_id === selectedRef;
     const matchesStatus = selectedStatus === 'all' || cyl.status === selectedStatus;
     return matchesSearch && matchesRef && matchesStatus;
   });
 
   const getInspectionStatus = (dateStr: string) => {
+    if (!dateStr) {
+      return { label: 'Onbekend', color: 'text-zinc-500', icon: Info };
+    }
     const inspection = new Date(dateStr);
     const today = new Date();
     const threeMonthsFromNow = new Date();
@@ -219,13 +428,23 @@ export const Cylinders: React.FC = () => {
             Beheer uw koudemiddelcilinders conform BRL 100 richtlijnen, inclusief keuringsdata en locaties.
           </p>
         </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm hover:shadow transition-all self-start sm:self-center"
-        >
-          <Plus className="h-4 w-4" />
-          Cilinder Toevoegen
-        </button>
+        <div className="flex items-center gap-3 self-start sm:self-center">
+          <button
+            onClick={() => setIsScanModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
+            title="Scan een cilinder QR-code om direct verbruik te registreren"
+          >
+            <QrCode className="h-4 w-4 text-zinc-500" />
+            Cilinder Scannen
+          </button>
+          <button
+            onClick={handleOpenAddModal}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm hover:shadow transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            Cilinder Toevoegen
+          </button>
+        </div>
       </div>
 
       {/* Info Banner */}
@@ -324,8 +543,8 @@ export const Cylinders: React.FC = () => {
                         <span className="capitalize text-zinc-600">{cyl.type}</span>
                       </td>
                       <td className="px-6 py-4 font-mono text-zinc-600">
-                        <div>Tarra: {cyl.tare_weight_kg.toFixed(1)} kg</div>
-                        <div className="text-xs text-zinc-400">Max: {cyl.max_capacity_kg.toFixed(1)} kg</div>
+                        <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(1) : '0.0'} kg</div>
+                        <div className="text-xs text-zinc-400">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(1) : '0.0'} kg</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1.5">
@@ -335,7 +554,7 @@ export const Cylinders: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="capitalize font-medium text-zinc-800">
-                          {cyl.status.replace('_', ' ')}
+                          {cyl.status ? cyl.status.replace('_', ' ') : 'Onbekend'}
                         </div>
                         {cyl.location && (
                           <div className="text-xs text-zinc-500 mt-0.5">{cyl.location}</div>
@@ -350,6 +569,13 @@ export const Cylinders: React.FC = () => {
                           >
                             <ArrowRightLeft className="h-4 w-4" />
                             <span className="text-xs font-medium hidden md:inline">Verbruik</span>
+                          </button>
+                          <button
+                            onClick={() => setActiveQrCylinder(cyl)}
+                            className="p-1.5 rounded-md text-zinc-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                            title="Bekijk & print QR-code van deze cilinder"
+                          >
+                            <QrCode className="h-4 w-4" />
                           </button>
                           <div className="w-px h-4 bg-zinc-200 mx-1"></div>
                           <button
@@ -691,6 +917,189 @@ export const Cylinders: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* QR View Modal */}
+      {activeQrCylinder && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #qr-print-section, #qr-print-section * {
+                visibility: visible !important;
+              }
+              #qr-print-section {
+                position: fixed !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                background: white !important;
+                z-index: 99999 !important;
+              }
+            }
+          `}</style>
+          <div className="bg-white rounded-xl shadow-xl border border-zinc-200 max-w-sm w-full overflow-hidden animate-scale-up">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50 print:hidden">
+              <h2 className="text-lg font-bold text-zinc-900">
+                Cilinder QR-code
+              </h2>
+              <button
+                onClick={() => setActiveQrCylinder(null)}
+                className="text-zinc-400 hover:text-zinc-600 rounded-md p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-6">
+              {/* This section will be targeted by print media CSS */}
+              <div id="qr-print-section" className="flex flex-col items-center justify-center p-4 bg-white rounded-lg">
+                <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                  <QRCodeSVG 
+                    value={`kmr-cylinder:${activeQrCylinder.id}`} 
+                    size={180} 
+                    level="H" 
+                    includeMargin={true}
+                  />
+                </div>
+                <div className="mt-4 text-center">
+                  <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Cilindernummer</div>
+                  <div className="text-lg font-mono font-bold text-zinc-950 mt-0.5">{activeQrCylinder.cylinder_number}</div>
+                  <div className="text-xs font-semibold text-zinc-600 mt-1">Koudemiddel: {activeQrCylinder.refrigerant_name || "Onbekend"}</div>
+                </div>
+              </div>
+
+              <div className="flex w-full gap-3 pt-4 border-t border-zinc-100 print:hidden">
+                <button
+                  onClick={() => setActiveQrCylinder(null)}
+                  className="flex-1 px-4 py-2.5 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-sm font-medium rounded-lg transition-colors"
+                >
+                  Sluiten
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors"
+                >
+                  Print Sticker
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Scanner Modal */}
+      <div className={`fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm items-center justify-center p-4 animate-fade-in ${isScanModalOpen ? 'flex' : 'hidden'}`}>
+        <div className="bg-white rounded-xl shadow-xl border border-zinc-200 max-w-md w-full overflow-hidden animate-scale-up">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50">
+            <h2 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-blue-600" />
+              Cilinder QR scannen
+            </h2>
+            <button
+              onClick={() => setIsScanModalOpen(false)}
+              className="text-zinc-400 hover:text-zinc-600 rounded-md p-1"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {scanError ? (
+              <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm border border-red-100 text-center space-y-2">
+                <p>{scanError}</p>
+                <button
+                  onClick={() => { setScanError(null); setIsScanModalOpen(false); setTimeout(() => setIsScanModalOpen(true), 100); }}
+                  className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-red-700 transition-colors"
+                >
+                  Opnieuw proberen
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-xs text-zinc-500 text-center bg-zinc-50 p-2.5 rounded-lg border border-zinc-100">
+                  Richt de camera van uw mobiel of tablet op de QR-code sticker van de cilinder om deze direct op te zoeken.
+                </div>
+                
+                {/* Camera view element */}
+                <div className="overflow-hidden rounded-xl border border-zinc-200 aspect-square bg-zinc-950 relative flex items-center justify-center min-h-[300px]">
+                  <div id="cylinder-scanner-reader" className="w-full h-full min-h-[300px]"></div>
+                  
+                  {/* Visual scanner overlay target */}
+                  <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-12 pointer-events-none rounded-lg flex items-center justify-center">
+                    <div className="w-4 h-4 border-t-2 border-l-2 border-blue-500 absolute top-0 left-0"></div>
+                    <div className="w-4 h-4 border-t-2 border-r-2 border-blue-500 absolute top-0 right-0"></div>
+                    <div className="w-4 h-4 border-b-2 border-l-2 border-blue-500 absolute bottom-0 left-0"></div>
+                    <div className="w-4 h-4 border-b-2 border-r-2 border-blue-500 absolute bottom-0 right-0"></div>
+                    <div className="w-full h-0.5 bg-blue-500/40 animate-pulse absolute"></div>
+                  </div>
+
+                  {/* Camera toggle floating button over video */}
+                  {cameraDevices.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={isTransitioning}
+                      onClick={handleToggleCamera}
+                      className="absolute bottom-4 right-4 bg-zinc-900/85 hover:bg-zinc-800 text-white p-3 rounded-full shadow-lg border border-zinc-700/50 transition-all cursor-pointer z-10 flex items-center justify-center hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                      title="Wissel van camera"
+                    >
+                      <RefreshCw className={`h-5 w-5 ${isTransitioning ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Camera Selector Dropdown */}
+                {cameraDevices.length > 1 && (
+                  <div className="space-y-1">
+                    <label className="block text-2xs font-bold text-zinc-400 uppercase tracking-wider">
+                      Wissel van Camera (indien zwart beeld)
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          disabled={isTransitioning}
+                          value={selectedCameraId}
+                          onChange={(e) => handleCameraChange(e.target.value)}
+                          className="appearance-none pl-3 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-zinc-700 font-medium disabled:opacity-50"
+                        >
+                          {cameraDevices.map((device, idx) => (
+                            <option key={device.id} value={device.id}>
+                              {device.label || `Camera ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 pointer-events-none" />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isTransitioning}
+                        onClick={handleToggleCamera}
+                        className="flex items-center justify-center px-3.5 rounded-lg border border-zinc-200 hover:border-blue-500 hover:bg-blue-50/50 text-zinc-600 hover:text-blue-600 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                        title="Volgende camera"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${isTransitioning ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setIsScanModalOpen(false)}
+              className="w-full px-4 py-2.5 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-sm font-medium rounded-lg transition-colors"
+            >
+              Annuleren
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
