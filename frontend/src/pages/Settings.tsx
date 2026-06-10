@@ -503,17 +503,24 @@ export const Settings: React.FC = () => {
                         <td className="py-3 text-right font-mono font-bold text-zinc-800">
                           <div className="flex items-center justify-end gap-2">
                             <span className={(ref.reclaim_stock_kg || 0) > 0 ? "text-red-600 font-extrabold" : "text-zinc-400"}>
-                              {(ref.reclaim_stock_kg || 0).toFixed(1)} kg
+                              {(ref.reclaim_stock_kg || 0).toFixed(3)} kg
                             </span>
-                            {(ref.reclaim_stock_kg || 0) > 0 && (
-                              <button
-                                onClick={() => handleResetReclaim(ref)}
-                                className="p-1 rounded text-zinc-400 hover:text-emerald-600 hover:bg-zinc-100 transition-all"
-                                title="Aanbieden voor vernietiging (leegmaken reclaim)"
-                              >
-                                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                              </button>
-                            )}
+                            <button
+                              disabled={!(ref.reclaim_stock_kg > 0)}
+                              onClick={() => handleResetReclaim(ref)}
+                              className={`p-1 rounded transition-all ${
+                                (ref.reclaim_stock_kg || 0) > 0
+                                  ? "text-red-500 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+                                  : "text-zinc-300 cursor-not-allowed opacity-50"
+                              }`}
+                              title={
+                                (ref.reclaim_stock_kg || 0) > 0
+                                  ? "Aanbieden voor vernietiging (leegmaken reclaim)"
+                                  : "Reclaim voorraad is al leeg"
+                              }
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </td>
                         <td className="py-3 text-right">

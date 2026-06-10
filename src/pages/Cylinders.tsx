@@ -699,12 +699,21 @@ export const Cylinders: React.FC = () => {
                             <span className="text-xs font-semibold">Verbruik</span>
                           </button>
 
-                          {/* Quick Legen Button for Mixfles with some contents */}
-                          {cyl.type === 'mix' && getCylinderContents(cyl.id).length > 0 && (
+                          {/* Quick Legen Button for Mixfles */}
+                          {cyl.type === 'mix' && (
                             <button
                               onClick={() => handleEmptyMixCylinder(cyl)}
-                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1"
-                              title="Mixfles leegmaken voor vernietiging"
+                              disabled={getCylinderContents(cyl.id).length === 0}
+                              className={`p-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                                getCylinderContents(cyl.id).length > 0
+                                  ? "text-red-600 hover:bg-red-50 cursor-pointer"
+                                  : "text-zinc-300 cursor-not-allowed opacity-50"
+                              }`}
+                              title={
+                                getCylinderContents(cyl.id).length > 0
+                                  ? "Mixfles leegmaken voor vernietiging"
+                                  : "Mixfles is al leeg"
+                              }
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="text-xs font-semibold">Legen</span>
