@@ -67,7 +67,7 @@ export const Dashboard: React.FC = () => {
           </div>
           <div>
             <p className="text-sm font-medium text-zinc-500">Totale Cilindervoorraad</p>
-            <h3 className="text-2xl font-bold text-zinc-900 mt-1 font-mono">{totalStockKg.toFixed(1)} kg</h3>
+            <h3 className="text-2xl font-bold text-zinc-900 mt-1 font-mono">{totalStockKg.toFixed(3)} kg</h3>
             <p className="text-xs text-zinc-400 mt-1">Gereserveerd in gasflessen</p>
           </div>
         </div>
@@ -121,11 +121,11 @@ export const Dashboard: React.FC = () => {
                       <span className="text-xs font-mono bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded">GWP: {ref.gwp}</span>
                       {(ref.reclaim_stock_kg || 0) > 0 && (
                         <span className="text-2xs font-extrabold bg-red-50 text-red-700 px-1.5 py-0.5 rounded border border-red-200">
-                          Reclaim: {(ref.reclaim_stock_kg ?? 0).toFixed(1)} kg
+                          Reclaim: {(ref.reclaim_stock_kg ?? 0).toFixed(3)} kg
                         </span>
                       )}
                     </div>
-                    <span className="font-mono font-bold text-zinc-900">{stockVal.toFixed(1)} kg</span>
+                    <span className="font-mono font-bold text-zinc-900">{stockVal.toFixed(3)} kg</span>
                   </div>
                   <div className="w-full bg-zinc-100 h-2.5 rounded-full overflow-hidden">
                     <div 
@@ -188,7 +188,7 @@ export const Dashboard: React.FC = () => {
                           {reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1)}
                         </span>
                       </td>
-                      <td className="py-3 text-right font-mono font-bold text-zinc-800">{(reg.amount_kg ?? 0).toFixed(1)} kg</td>
+                      <td className="py-3 text-right font-mono font-bold text-zinc-800">{(reg.amount_kg ?? 0).toFixed(3)} kg</td>
                     </tr>
                   ))}
                 </tbody>

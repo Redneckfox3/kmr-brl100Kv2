@@ -146,7 +146,7 @@ export const Settings: React.FC = () => {
     const amount = ref.reclaim_stock_kg || 0;
     if (amount <= 0) return;
 
-    if (window.confirm(`Weet u zeker dat u de reclaim cilinder voor "${ref.name}" wilt legen (${amount.toFixed(1)} kg)? \n\nDit betekent dat het koudemiddel definitief is aangeboden voor vernietiging.`)) {
+    if (window.confirm(`Weet u zeker dat u de reclaim cilinder voor "${ref.name}" wilt legen (${amount.toFixed(3)} kg)? \n\nDit betekent dat het koudemiddel definitief is aangeboden voor vernietiging.`)) {
       try {
         await dbService.updateRefrigerant(ref.id, { reclaim_stock_kg: 0 });
         await loadRefrigerants();
@@ -488,7 +488,7 @@ export const Settings: React.FC = () => {
                             </div>
                           ) : (
                             <div className="flex items-center justify-end gap-2">
-                              <span>{(ref.current_stock_kg ?? 0).toFixed(1)} kg</span>
+                              <span>{(ref.current_stock_kg ?? 0).toFixed(3)} kg</span>
                               <button
                                 onClick={() => handleStartEditStock(ref)}
                                 className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-zinc-100 transition-all"
@@ -502,7 +502,7 @@ export const Settings: React.FC = () => {
                         <td className="py-3 text-right font-mono font-bold text-zinc-800">
                           <div className="flex items-center justify-end gap-2">
                             <span className={(ref.reclaim_stock_kg || 0) > 0 ? "text-red-600 font-extrabold" : "text-zinc-400"}>
-                              {(ref.reclaim_stock_kg || 0).toFixed(1)} kg
+                              {(ref.reclaim_stock_kg || 0).toFixed(3)} kg
                             </span>
                             {(ref.reclaim_stock_kg || 0) > 0 && (
                               <button

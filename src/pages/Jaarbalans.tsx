@@ -40,7 +40,7 @@ export const Jaarbalans: React.FC = () => {
     const co2 = ((val * gwp) / 1000).toFixed(2);
     return (
       <div className="text-center font-mono">
-        <div className="text-zinc-800 font-bold">{val.toFixed(1)} kg</div>
+        <div className="text-zinc-800 font-bold">{val.toFixed(3)} kg</div>
         <div className="text-3xs text-purple-600 font-normal mt-0.5">({co2} t CO2-eq)</div>
       </div>
     );
@@ -181,19 +181,19 @@ export const Jaarbalans: React.FC = () => {
       const startCo2 = ((bal.start_weight_kg * gwp) / 1000).toFixed(2);
       const calcEndCo2 = ((bal.end_weight_kg * gwp) / 1000).toFixed(2);
       const actualEndCo2 = ((bal.actual_weight_kg * gwp) / 1000).toFixed(2);
-      const diffVal = parseFloat((bal.actual_weight_kg - bal.end_weight_kg).toFixed(2));
-      const diffText = diffVal === 0 ? "0.0 kg" : `${diffVal > 0 ? "+" : ""}${diffVal.toFixed(1)} kg`;
+      const diffVal = parseFloat((bal.actual_weight_kg - bal.end_weight_kg).toFixed(3));
+      const diffText = diffVal === 0 ? "0.000 kg" : `${diffVal > 0 ? "+" : ""}${diffVal.toFixed(3)} kg`;
       
       return [
         bal.refrigerant_name || 'N/B',
         gwp.toString() || 'N/B',
-        `${bal.start_weight_kg.toFixed(1)} kg\n(${startCo2} t CO2-eq)`,
-        `${bal.total_purchased.toFixed(1)} kg`,
-        `${bal.total_recovered.toFixed(1)} kg`,
-        `${bal.total_sold.toFixed(1)} kg`,
-        `${bal.total_disposed.toFixed(1)} kg`,
-        `${bal.end_weight_kg.toFixed(1)} kg\n(${calcEndCo2} t CO2-eq)`,
-        `${bal.actual_weight_kg.toFixed(1)} kg\n(${actualEndCo2} t CO2-eq)`,
+        `${bal.start_weight_kg.toFixed(3)} kg\n(${startCo2} t CO2-eq)`,
+        `${bal.total_purchased.toFixed(3)} kg`,
+        `${bal.total_recovered.toFixed(3)} kg`,
+        `${bal.total_sold.toFixed(3)} kg`,
+        `${bal.total_disposed.toFixed(3)} kg`,
+        `${bal.end_weight_kg.toFixed(3)} kg\n(${calcEndCo2} t CO2-eq)`,
+        `${bal.actual_weight_kg.toFixed(3)} kg\n(${actualEndCo2} t CO2-eq)`,
         diffText
       ];
     });
@@ -401,7 +401,7 @@ export const Jaarbalans: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-zinc-500">Totaal Ingekocht ({selectedYear})</p>
                 <h3 className="text-xl font-bold font-mono text-zinc-900">
-                  {balances.reduce((sum, b) => sum + b.total_purchased, 0).toFixed(1)} kg
+                  {balances.reduce((sum, b) => sum + b.total_purchased, 0).toFixed(3)} kg
                 </h3>
               </div>
             </div>
@@ -413,7 +413,7 @@ export const Jaarbalans: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-zinc-500">Totaal Verkocht / Toegevoegd</p>
                 <h3 className="text-xl font-bold font-mono text-zinc-900">
-                  {balances.reduce((sum, b) => sum + b.total_sold, 0).toFixed(1)} kg
+                  {balances.reduce((sum, b) => sum + b.total_sold, 0).toFixed(3)} kg
                 </h3>
               </div>
             </div>
@@ -439,7 +439,7 @@ export const Jaarbalans: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-zinc-200 text-sm font-medium">
                   {balances.map((bal) => {
-                    const diffVal = parseFloat((bal.actual_weight_kg - bal.end_weight_kg).toFixed(2));
+                    const diffVal = parseFloat((bal.actual_weight_kg - bal.end_weight_kg).toFixed(3));
                     
                     return (
                       <tr key={bal.id} className="hover:bg-zinc-50/50 transition-colors">
@@ -453,7 +453,7 @@ export const Jaarbalans: React.FC = () => {
                               <span className="block text-2xs font-bold text-zinc-400">BEGINSTAND</span>
                               <input
                                 type="number"
-                                step="0.1"
+                                step="0.001"
                                 value={editStartWeight}
                                 onChange={(e) => setEditStartWeight(e.target.value)}
                                 className="px-2 py-1 border border-blue-500 rounded text-sm w-20 text-right font-mono focus:outline-none bg-blue-50/20"
@@ -461,7 +461,7 @@ export const Jaarbalans: React.FC = () => {
                             </div>
                           ) : (
                             <div>
-                              <div className="font-mono text-zinc-800">{bal.start_weight_kg.toFixed(1)} kg</div>
+                              <div className="font-mono text-zinc-800">{bal.start_weight_kg.toFixed(3)} kg</div>
                               <div className="text-2xs text-purple-600 font-mono font-normal mt-0.5">
                                 {((bal.start_weight_kg * (bal.gwp || 0)) / 1000).toFixed(2)} Ton CO₂
                               </div>
@@ -470,14 +470,14 @@ export const Jaarbalans: React.FC = () => {
                         </td>
                         
                         {/* Constants */}
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_purchased.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_recovered.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_sold.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_disposed.toFixed(1)} kg</td>
+                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_purchased.toFixed(3)} kg</td>
+                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_recovered.toFixed(3)} kg</td>
+                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_sold.toFixed(3)} kg</td>
+                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_disposed.toFixed(3)} kg</td>
                         
                         {/* Calculated end weight (Berekende voorraad, read-only) */}
                         <td className="px-4 py-4 font-mono bg-zinc-50/50">
-                          <div className="font-semibold text-zinc-600">{bal.end_weight_kg.toFixed(1)} kg</div>
+                          <div className="font-semibold text-zinc-600">{bal.end_weight_kg.toFixed(3)} kg</div>
                           <div className="text-2xs text-zinc-400 font-mono font-normal mt-0.5">
                             {((bal.end_weight_kg * (bal.gwp || 0)) / 1000).toFixed(2)} Ton CO₂
                           </div>
@@ -490,7 +490,7 @@ export const Jaarbalans: React.FC = () => {
                               <span className="block text-2xs font-bold text-zinc-400">WERKELIJK</span>
                               <input
                                 type="number"
-                                step="0.1"
+                                step="0.001"
                                 value={editActualWeight}
                                 onChange={(e) => setEditActualWeight(e.target.value)}
                                 className="px-2 py-1 border border-blue-500 rounded text-sm w-20 text-right font-mono focus:outline-none bg-blue-50/20"
@@ -498,7 +498,7 @@ export const Jaarbalans: React.FC = () => {
                             </div>
                           ) : (
                             <div>
-                              <div className="font-mono text-zinc-800 font-bold">{bal.actual_weight_kg.toFixed(1)} kg</div>
+                              <div className="font-mono text-zinc-800 font-bold">{bal.actual_weight_kg.toFixed(3)} kg</div>
                               <div className="text-2xs text-purple-600 font-mono font-normal mt-0.5">
                                 {((bal.actual_weight_kg * (bal.gwp || 0)) / 1000).toFixed(2)} Ton CO₂
                               </div>
@@ -519,7 +519,7 @@ export const Jaarbalans: React.FC = () => {
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                                   : 'bg-red-50 text-red-700 border-red-200'
                               }`}>
-                                {diffVal > 0 ? "+" : ""}{diffVal.toFixed(1)} kg
+                                {diffVal > 0 ? "+" : ""}{diffVal.toFixed(3)} kg
                               </span>
                               <div className="text-3xs text-zinc-400 font-mono">
                                 {((diffVal * (bal.gwp || 0)) / 1000).toFixed(2)} Ton CO₂

@@ -394,7 +394,7 @@ export const Registrations: React.FC = () => {
         reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-',
         reg.refrigerant_name || '-',
         reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1),
-        `${reg.amount_kg.toFixed(2)} kg`,
+        `${reg.amount_kg.toFixed(3)} kg`,
         reg.co2_equivalent ? `${reg.co2_equivalent.toFixed(2)} Ton` : '-',
         reg.reason.charAt(0).toUpperCase() + reg.reason.slice(1)
       ];
@@ -722,7 +722,7 @@ export const Registrations: React.FC = () => {
                 >
                   {refrigerants.map((ref) => (
                     <option key={ref.id} value={ref.id}>
-                      {ref.name} (GWP: {ref.gwp}, Voorraad: {(ref.current_stock_kg !== undefined && ref.current_stock_kg !== null) ? Number(ref.current_stock_kg).toFixed(1) : '0.0'} kg)
+                      {ref.name} (GWP: {ref.gwp}, Voorraad: {(ref.current_stock_kg !== undefined && ref.current_stock_kg !== null) ? Number(ref.current_stock_kg).toFixed(3) : '0.000'} kg)
                     </option>
                   ))}
                 </select>
@@ -735,8 +735,8 @@ export const Registrations: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  step="0.01"
-                  min="0.01"
+                  step="0.001"
+                  min="0.001"
                   required
                   placeholder="Bijv. 4.5"
                   value={amountKg}

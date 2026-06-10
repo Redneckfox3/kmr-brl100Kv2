@@ -62,7 +62,7 @@ export const Cylinders: React.FC = () => {
         result.push({
           refId,
           name: ref ? ref.name : 'Mengsel',
-          weight: Number(weight.toFixed(2))
+          weight: Number(weight.toFixed(3))
         });
       }
     });
@@ -632,8 +632,8 @@ export const Cylinders: React.FC = () => {
                         <span className="capitalize text-zinc-600">{cyl.type}</span>
                       </td>
                       <td className="px-6 py-4 font-mono text-zinc-600">
-                        <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(1) : '0.0'} kg</div>
-                        <div className="text-xs text-zinc-400 mb-1">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(1) : '0.0'} kg</div>
+                        <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(3) : '0.000'} kg</div>
+                        <div className="text-xs text-zinc-400 mb-1">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(3) : '0.000'} kg</div>
                         
                         {/* Dynamic gas contents listing with real-time audit weight calculation */}
                         {(() => {
@@ -650,12 +650,12 @@ export const Cylinders: React.FC = () => {
                                   <div className="space-y-0.5 pl-1.5 border-l-2 border-blue-500">
                                     {contents.map((c, idx) => (
                                       <div key={idx} className="text-2xs text-zinc-700 font-medium">
-                                        {c.name}: <span className="font-bold text-zinc-900">{c.weight.toFixed(2)} kg</span>
+                                        {c.name}: <span className="font-bold text-zinc-900">{c.weight.toFixed(3)} kg</span>
                                       </div>
                                     ))}
                                   </div>
                                   <div className="text-2xs font-semibold text-purple-600 mt-1 flex items-center justify-between">
-                                    <span>Bruto: <span className="font-bold">{grossWeight.toFixed(2)} kg</span></span>
+                                    <span>Bruto: <span className="font-bold">{grossWeight.toFixed(3)} kg</span></span>
                                     <span className="text-zinc-400 font-normal">{fillPercent.toFixed(0)}% gevuld</span>
                                   </div>
                                   {cyl.max_capacity_kg > 0 && (
@@ -841,7 +841,7 @@ export const Cylinders: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.001"
                     min="0"
                     required
                     placeholder="Leeggewicht"
@@ -858,7 +858,7 @@ export const Cylinders: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.001"
                     min="0"
                     required
                     placeholder="Max vulling"

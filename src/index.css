@@ -23,3 +23,12 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
 }
+
+/* html5-qrcode iOS/Safari black screen video fixes */
+#cylinder-scanner-reader video, 
+#reg-scanner-reader video {
+  display: block !important;
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+}

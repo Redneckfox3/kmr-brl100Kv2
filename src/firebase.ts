@@ -435,18 +435,18 @@ class DatabaseService {
     let stockDiff = 0;
     let reclaimDiff = 0;
 
-    if (reg.reason === "vernietiging") {
-      if (reg.mutation === "terugwinning") {
-        reclaimDiff = reg.amount_kg;
-      }
-    } else {
-      if (reg.mutation === "toevoeging" || reg.mutation === "afrekening") {
-        stockDiff = -reg.amount_kg;
-      } else if (reg.mutation === "terugwinning") {
-        stockDiff = reg.amount_kg;
-      } else if (reg.mutation === "inkoop") {
-        stockDiff = reg.amount_kg;
-      }
+    if (reg.mutation === "terugwinning") {
+      // All recovery goes into the mix bottle, never to the regular stock.
+      reclaimDiff = reg.amount_kg;
+      stockDiff = 0;
+    } else if (reg.mutation === "afvoer") {
+      // Emptying the mix bottle (disposal) does not subtract from the regular stock.
+      reclaimDiff = -reg.amount_kg;
+      stockDiff = 0;
+    } else if (reg.mutation === "toevoeging" || reg.mutation === "afrekening") {
+      stockDiff = -reg.amount_kg;
+    } else if (reg.mutation === "inkoop") {
+      stockDiff = reg.amount_kg;
     }
 
     return { stockDiff, reclaimDiff };
@@ -488,8 +488,8 @@ class DatabaseService {
     const newReclaim = Math.max(0, currentReclaim + reclaimDiff);
 
     await this.updateRefrigerant(ref.id, { 
-      current_stock_kg: parseFloat(newStock.toFixed(2)),
-      reclaim_stock_kg: parseFloat(newReclaim.toFixed(2))
+      current_stock_kg: parseFloat(newStock.toFixed(3)),
+      reclaim_stock_kg: parseFloat(newReclaim.toFixed(3))
     });
 
     if (this.isFirebase && this.db) {
@@ -527,8 +527,8 @@ class DatabaseService {
       const { stockDiff: oldStockDiff, reclaimDiff: oldReclaimDiff } = this.calculateStockImpact(oldReg);
       const currentReclaim = oldRef.reclaim_stock_kg || 0;
       await this.updateRefrigerant(oldRef.id, { 
-        current_stock_kg: parseFloat(Math.max(0, oldRef.current_stock_kg - oldStockDiff).toFixed(2)),
-        reclaim_stock_kg: parseFloat(Math.max(0, currentReclaim - oldReclaimDiff).toFixed(2))
+        current_stock_kg: parseFloat(Math.max(0, oldRef.current_stock_kg - oldStockDiff).toFixed(3)),
+        reclaim_stock_kg: parseFloat(Math.max(0, currentReclaim - oldReclaimDiff).toFixed(3))
       });
     }
 
@@ -553,8 +553,8 @@ class DatabaseService {
 
     const activeReclaim = activeRef.reclaim_stock_kg || 0;
     await this.updateRefrigerant(activeRef.id, { 
-      current_stock_kg: parseFloat(Math.max(0, activeRef.current_stock_kg + newStockDiff).toFixed(2)),
-      reclaim_stock_kg: parseFloat(Math.max(0, activeReclaim + newReclaimDiff).toFixed(2))
+      current_stock_kg: parseFloat(Math.max(0, activeRef.current_stock_kg + newStockDiff).toFixed(3)),
+      reclaim_stock_kg: parseFloat(Math.max(0, activeReclaim + newReclaimDiff).toFixed(3))
     });
 
     const finalUpdates: any = {
@@ -617,8 +617,8 @@ class DatabaseService {
       const { stockDiff, reclaimDiff } = this.calculateStockImpact(reg);
       const currentReclaim = ref.reclaim_stock_kg || 0;
       await this.updateRefrigerant(ref.id, { 
-        current_stock_kg: parseFloat(Math.max(0, ref.current_stock_kg - stockDiff).toFixed(2)),
-        reclaim_stock_kg: parseFloat(Math.max(0, currentReclaim - reclaimDiff).toFixed(2))
+        current_stock_kg: parseFloat(Math.max(0, ref.current_stock_kg - stockDiff).toFixed(3)),
+        reclaim_stock_kg: parseFloat(Math.max(0, currentReclaim - reclaimDiff).toFixed(3))
       });
     }
 
@@ -707,14 +707,15 @@ class DatabaseService {
         if (reg.mutation === "toevoeging" || reg.mutation === "afrekening") {
           total_sold += reg.amount_kg;
         } else if (reg.mutation === "terugwinning") {
-          if (reg.reason === "vernietiging") {
-            total_recovered += reg.amount_kg; // Came into reclaim cylinders
-            total_disposed += reg.amount_kg; // And is disposed / offered for destruction
-          } else {
-            total_recovered += reg.amount_kg; // Normal reusable recovery
-          }
-        } else if (reg.mutation === "afvoer") {
+          // All recovered refrigerant goes to the mix / reclaim bottle (destined for destruction),
+          // so we register it as both total_recovered and total_disposed so that they cancel out
+          // and have 0 net effect on the regular/reusable stock's calculated end weight.
+          total_recovered += reg.amount_kg;
           total_disposed += reg.amount_kg;
+        } else if (reg.mutation === "afvoer") {
+          // Emptying the mix bottle (disposal) is not counted on the regular/reusable stock's annual balance disposal
+          // because it was already accounted for as "disposed" under the "terugwinning" event (into the mix bottle).
+          // Counting it again would double-count disposal and subtract from the regular stock.
         } else if (reg.mutation === "inkoop") {
           total_purchased += reg.amount_kg; // sum all registered purchases!
         }
