@@ -279,6 +279,7 @@ export const Registrations: React.FC = () => {
     setMutation('toevoeging');
     setReason('onderhoud');
     setDate(new Date().toISOString().split('T')[0]);
+    setCylinderId('');
     setError(null);
     setIsModalOpen(true);
   };
@@ -293,6 +294,7 @@ export const Registrations: React.FC = () => {
     setMutation(reg.mutation);
     setReason(reg.reason);
     setDate(reg.date);
+    setCylinderId(reg.cylinder_id || '');
     setError(null);
     setIsModalOpen(true);
   };
@@ -331,6 +333,9 @@ export const Registrations: React.FC = () => {
     }
     if (nominalChargeKg) {
       data.nominal_charge_kg = parseFloat(nominalChargeKg);
+    }
+    if (cylinderId) {
+      data.cylinder_id = cylinderId;
     }
 
     try {
