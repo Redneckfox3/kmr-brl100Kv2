@@ -80,6 +80,8 @@ export const Cylinders: React.FC = () => {
   // Tab and selection state for BRL100 Fleskaarten
   const [activeTab, setActiveTab] = useState<'lijst' | 'fleskaarten'>('lijst');
   const [selectedCylinderId, setSelectedCylinderId] = useState<string>('');
+  const [selectedFleskaartYear, setSelectedFleskaartYear] = useState<number | 'all'>(new Date().getFullYear());
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i);
 
   // Form / Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -524,7 +526,7 @@ export const Cylinders: React.FC = () => {
     doc.text(`BRL 100 - Fleskaart`, 14, 20);
     
     doc.setFontSize(10);
-    doc.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL')}`, 14, 26);
+    doc.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL')} ${selectedFleskaartYear !== 'all' ? `(Filter jaar: ${selectedFleskaartYear})` : '(Alle jaren)'}`, 14, 26);
     
     doc.setDrawColor(228, 228, 231); // zinc-200
     doc.line(14, 30, 196, 30);
@@ -562,7 +564,11 @@ export const Cylinders: React.FC = () => {
     doc.text(`Handelingenhistorie (Audit Trail)`, 14, 86);
     
     // Filter and sort registrations for table
-    const cylRegs = registrations.filter(r => r.cylinder_id === cyl.id);
+    const cylRegs = registrations.filter(r => {
+      const matchesCylinder = r.cylinder_id === cyl.id;
+      const matchesYear = selectedFleskaartYear === 'all' || new Date(r.date).getFullYear() === selectedFleskaartYear;
+      return matchesCylinder && matchesYear;
+    });
     const sortedRegs = [...cylRegs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     
     const tableColumn = ["Datum", "Installatie ID", "Handeling (Mutatie)", "Hoeveelheid", "Reden"];
@@ -587,7 +593,7 @@ export const Cylinders: React.FC = () => {
       styles: { fontSize: 9 }
     });
     
-    doc.save(`fleskaart_${cyl.cylinder_number}_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`fleskaart_${cyl.cylinder_number}_${selectedFleskaartYear !== 'all' ? selectedFleskaartYear : 'alle_jaren'}.pdf`);
   };
 
   return (
@@ -878,32 +884,55 @@ export const Cylinders: React.FC = () => {
       ) : (
         /* Fleskaarten Tab View */
         <div className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="w-full sm:max-w-md">
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                Selecteer Cilinder (Fles)
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedCylinderId}
-                  onChange={(e) => setSelectedCylinderId(e.target.value)}
-                  className="appearance-none pl-4 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">-- Kies een cilinder --</option>
-                  {cylinders.map((cyl) => (
-                    <option key={cyl.id} value={cyl.id}>
-                      {cyl.cylinder_number} ({cyl.refrigerant_name || 'Mengsel'}) - {cyl.type}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 flex-1 max-w-2xl">
+              {/* Cylinder selector */}
+              <div className="flex-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  Selecteer Cilinder (Fles)
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedCylinderId}
+                    onChange={(e) => setSelectedCylinderId(e.target.value)}
+                    className="appearance-none pl-4 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">-- Kies een cilinder --</option>
+                    {cylinders.map((cyl) => (
+                      <option key={cyl.id} value={cyl.id}>
+                        {cyl.cylinder_number} ({cyl.refrigerant_name || 'Mengsel'}) - {cyl.type}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Year selector */}
+              <div className="w-full sm:w-48">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  Selecteer Jaar
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedFleskaartYear}
+                    onChange={(e) => setSelectedFleskaartYear(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                    className="appearance-none pl-4 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="all">Alle jaren</option>
+                    {years.map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+                </div>
               </div>
             </div>
 
             {selectedCylinder && (
               <button
                 onClick={() => handleExportFleskaartPDF(selectedCylinder)}
-                className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
+                className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all self-start md:self-auto"
               >
                 <FileText className="h-4 w-4" />
                 Exporteer Fleskaart (PDF)
@@ -977,7 +1006,11 @@ export const Cylinders: React.FC = () => {
                   Handelingenhistorie (Audit Trail)
                 </h3>
                 {(() => {
-                  const cylRegs = registrations.filter(r => r.cylinder_id === selectedCylinder.id);
+                  const cylRegs = registrations.filter(r => {
+                    const matchesCylinder = r.cylinder_id === selectedCylinder.id;
+                    const matchesYear = selectedFleskaartYear === 'all' || new Date(r.date).getFullYear() === selectedFleskaartYear;
+                    return matchesCylinder && matchesYear;
+                  });
                   const sortedRegs = [...cylRegs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
                   if (sortedRegs.length === 0) {
