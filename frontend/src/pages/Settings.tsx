@@ -3,7 +3,8 @@ import { dbService } from '../firebase';
 import type { Refrigerant, FirebaseConfig } from '../firebase';
 import { 
   Plus, Save, Cloud, 
-  HelpCircle, Trash2, Eye, EyeOff, Check, Layers, Edit2, X, PlusCircle, Calendar as CalendarIcon
+  HelpCircle, Trash2, Eye, EyeOff, Check, Layers, Edit2, X, PlusCircle, Calendar as CalendarIcon,
+  Database, Mail, Download, Info
 } from 'lucide-react';
 
 export const Settings: React.FC = () => {
@@ -147,7 +148,7 @@ export const Settings: React.FC = () => {
     const amount = ref.reclaim_stock_kg || 0;
     if (amount <= 0) return;
 
-    if (window.confirm(`Weet u zeker dat u de reclaim cilinder voor "${ref.name}" wilt legen (${amount.toFixed(1)} kg)? \n\nDit betekent dat het koudemiddel definitief is aangeboden voor vernietiging.`)) {
+    if (window.confirm(`Weet u zeker dat u de reclaim cilinder voor "${ref.name}" wilt legen (${amount.toFixed(3)} kg)? \n\nDit betekent dat het koudemiddel definitief is aangeboden voor vernietiging.`)) {
       try {
         await dbService.updateRefrigerant(ref.id, { reclaim_stock_kg: 0 });
         await loadRefrigerants();
@@ -257,6 +258,63 @@ export const Settings: React.FC = () => {
       setSyncError(e.message || "Er is een fout opgetreden bij de synchronisatie.");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleDownloadBackupOnly = async () => {
+    try {
+      const refs = await dbService.getRefrigerants();
+      const cyls = await dbService.getCylinders();
+      const regs = await dbService.getRegistrations();
+      
+      const backupData = {
+        version: "1.0",
+        timestamp: new Date().toISOString(),
+        exported_by: "System Admin",
+        refrigerants: refs,
+        cylinders: cyls,
+        registrations: regs
+      };
+      
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(backupData, null, 2)
+      )}`;
+      
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", jsonString);
+      
+      const dateStr = new Date().toISOString().split('T')[0];
+      downloadAnchor.setAttribute("download", `brl100_database_backup_${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      
+      alert("Back-up succesvol gedownload naar uw computer!");
+    } catch (e: any) {
+      console.error("Fout bij exporteren back-up:", e);
+      alert("Fout bij exporteren back-up: " + e.message);
+    }
+  };
+
+  const handleBackupAndEmail = async () => {
+    try {
+      // First, trigger the download
+      await handleDownloadBackupOnly();
+      
+      // Then, build the mailto link
+      const dateStr = new Date().toLocaleDateString('nl-NL');
+      const subject = encodeURIComponent(`BRL 100 Database Back-up - ${dateStr}`);
+      const body = encodeURIComponent(
+        `Beste administratie,\n\nHierbij stuur ik de periodieke BRL 100 database back-up van ons koudemiddelregistratiesysteem.\n\n` +
+        `Datum van export: ${dateStr}\n\n` +
+        `S.V.P. het gedownloade JSON-bestand als bijlage aan deze e-mail toevoegen alvorens te verzenden.\n\n` +
+        `Met vriendelijke groet,\nMeijer Veendam`
+      );
+      
+      // Open default email client
+      window.location.href = `mailto:info@meijerveendam.nl?subject=${subject}&body=${body}`;
+    } catch (e: any) {
+      console.error("Fout bij mailen back-up:", e);
     }
   };
 
@@ -489,7 +547,7 @@ export const Settings: React.FC = () => {
                             </div>
                           ) : (
                             <div className="flex items-center justify-end gap-2">
-                              <span>{(ref.current_stock_kg ?? 0).toFixed(1)} kg</span>
+                              <span>{(ref.current_stock_kg ?? 0).toFixed(3)} kg</span>
                               <button
                                 onClick={() => handleStartEditStock(ref)}
                                 className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-zinc-100 transition-all"
@@ -683,6 +741,50 @@ export const Settings: React.FC = () => {
                 )}
               </div>
             </form>
+          </div>
+
+          {/* Back-up & Herstel Card */}
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden p-6 space-y-4">
+            <h2 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+              <Database className="h-5 w-5 text-blue-600" />
+              BRL 100 Database Back-up
+            </h2>
+            <p className="text-sm text-zinc-600">
+              Sla uw koudemiddel-, cilinder- en werkregistratie-gegevens veilig op ter voldoening aan de wettelijke bewaartermijn van 5 jaar.
+            </p>
+            
+            <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200 text-sm text-zinc-600 space-y-2">
+              <p className="font-semibold text-zinc-900 flex items-center gap-1.5">
+                <Info className="h-4 w-4 text-blue-500" />
+                Hoe werkt de back-up?
+              </p>
+              <p className="text-xs text-zinc-555">
+                Wanneer u op de exportknop klikt, haalt de app in één keer de actuele stand van alle gegevens (koudemiddelen, cilinders en registraties) op. Dit wordt samengevoegd in een gedateerd back-upbestand (.json).
+              </p>
+              <p className="text-xs text-zinc-555">
+                Vervolgens wordt uw e-mailclient geopend geadresseerd aan <strong className="text-zinc-900">info@meijerveendam.nl</strong> zodat u het gedownloade bestand direct kunt doorsturen naar uw back-up archief.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={handleBackupAndEmail}
+                className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all flex-1"
+              >
+                <Mail className="h-4 w-4" />
+                Exporteer & Mail naar info@meijerveendam.nl
+              </button>
+              
+              <button
+                type="button"
+                onClick={handleDownloadBackupOnly}
+                className="inline-flex items-center justify-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
+              >
+                <Download className="h-4 w-4" />
+                Download JSON
+              </button>
+            </div>
           </div>
 
           {/* Data Synchronisatie / Migratie Card */}
