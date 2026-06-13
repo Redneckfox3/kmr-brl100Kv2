@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { dbService, Refrigerant, Registration, Cylinder } from '../firebase';
+import { dbService } from '../firebase';
+import type { Refrigerant, Registration, Cylinder } from '../firebase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -52,7 +53,7 @@ export const Registrations: React.FC = () => {
 
   // Form fields
   const [installationId, setInstallationId] = useState('');
-  const [installationType, setInstallationType] = useState('Commerciële koeling'); // Default based on Excel
+  const [installationType, setInstallationType] = useState('Stationaire koeling'); // Default based on Excel
   const [nominalChargeKg, setNominalChargeKg] = useState('');
   const [refrigerantId, setRefrigerantId] = useState('');
   const [amountKg, setAmountKg] = useState('');
@@ -273,7 +274,7 @@ export const Registrations: React.FC = () => {
   const handleOpenAddModal = () => {
     setEditingId(null);
     setInstallationId('');
-    setInstallationType('Commerciële koeling');
+    setInstallationType('Stationaire koeling');
     setNominalChargeKg('');
     if (refrigerants.length > 0) {
       setRefrigerantId(refrigerants[0].id);
@@ -290,7 +291,7 @@ export const Registrations: React.FC = () => {
   const handleOpenEditModal = (reg: Registration) => {
     setEditingId(reg.id);
     setInstallationId(reg.installation_id);
-    setInstallationType(reg.installation_type || 'Commerciële koeling');
+    setInstallationType(reg.installation_type || 'Stationaire koeling');
     setNominalChargeKg(reg.nominal_charge_kg ? reg.nominal_charge_kg.toString() : '');
     setRefrigerantId(reg.refrigerant_id);
     setAmountKg(reg.amount_kg.toString());
@@ -656,6 +657,7 @@ export const Registrations: React.FC = () => {
                   onChange={(e) => setInstallationType(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
+                  <option value="Stationaire koeling">Stationaire koeling</option>
                   <option value="Commerciële koeling">Commerciële koeling</option>
                   <option value="Transportkoeling">Transportkoeling</option>
                   <option value="Industriële koeling">Industriële koeling</option>

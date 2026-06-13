@@ -5,13 +5,36 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
   Plus, Edit2, Trash2, X, ClipboardList, Info, 
-  ArrowUpRight, ArrowDownRight, Search, Calendar, ChevronDown, Download
+  ArrowUpRight, ArrowDownRight, Search, Calendar, ChevronDown, Download, QrCode,
+  RefreshCw
 } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+
+// Helper to determine the best back/scanning camera on launch
+const findPreferredCamera = (devices: any[]) => {
+  // First priority: look for a camera that is explicitly labeled back/rear but is NOT a selfie/front camera
+  const explicitBack = devices.find(device => {
+    const label = device.label.toLowerCase();
+    const isFront = label.includes('front') || label.includes('selfie') || label.includes('user') || label.includes('camera 1');
+    const isBack = label.includes('back') || label.includes('rear') || label.includes('omgeving') || label.includes('achter') || label.includes('camera 0');
+    return isBack && !isFront;
+  });
+  if (explicitBack) return explicitBack;
+
+  // Second priority: look for any camera that does not look like a selfie/front camera
+  const nonFront = devices.find(device => {
+    const label = device.label.toLowerCase();
+    return !(label.includes('front') || label.includes('selfie') || label.includes('user') || label.includes('camera 1'));
+  });
+  if (nonFront) return nonFront;
+
+  // Third priority: fallback to the first device listed
+  return devices[0];
+};
 
 export const Registrations: React.FC = () => {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [refrigerants, setRefrigerants] = useState<Refrigerant[]>([]);
-  const [cylinders, setCylinders] = useState<Cylinder[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Search and filter state
@@ -30,14 +53,143 @@ export const Registrations: React.FC = () => {
 
   // Form fields
   const [installationId, setInstallationId] = useState('');
-  const [installationType, setInstallationType] = useState('Commerciële koeling'); // Default based on Excel
+  const [installationType, setInstallationType] = useState('Stationaire koeling'); // Default based on Excel
   const [nominalChargeKg, setNominalChargeKg] = useState('');
   const [refrigerantId, setRefrigerantId] = useState('');
   const [amountKg, setAmountKg] = useState('');
   const [mutation, setMutation] = useState<'toevoeging' | 'afrekening' | 'terugwinning' | 'afvoer' | 'inkoop'>('toevoeging');
   const [reason, setReason] = useState('onderhoud');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Cylinder and QR states
+  const [cylinders, setCylinders] = useState<Cylinder[]>([]);
   const [cylinderId, setCylinderId] = useState('');
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [cameraDevices, setCameraDevices] = useState<any[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [html5QrCodeInstance, setHtml5QrCodeInstance] = useState<Html5Qrcode | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Start or restart the scanner with a specific camera ID or config
+  const startCamera = async (scanner: Html5Qrcode, cameraIdOrConfig: any) => {
+    if (isTransitioning) return;
+    setIsTransitioning(true);
+    setScanError(null);
+
+    try {
+      if (scanner.isScanning) {
+        await scanner.stop();
+        // Brief pause to allow the hardware sensor to release safely
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      await scanner.start(
+        cameraIdOrConfig,
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        (decodedText) => {
+          // On success
+          const foundCyl = cylinders.find(
+            c => c.id === decodedText || 
+                 c.cylinder_number.toLowerCase() === decodedText.toLowerCase() ||
+                 decodedText.replace(/^kmr-cylinder:/i, '') === c.id ||
+                 decodedText.replace(/^kmr-cylinder:/i, '').toLowerCase() === c.cylinder_number.toLowerCase()
+          );
+
+          if (foundCyl) {
+            scanner.stop().then(() => {
+              setIsScanModalOpen(false);
+              setCylinderId(foundCyl.id);
+              // Automatically pre-fill the refrigerant of the scanned cylinder!
+              if (foundCyl.refrigerant_id) {
+                setRefrigerantId(foundCyl.refrigerant_id);
+              }
+            }).catch(err => {
+              console.error("Error stopping scanner:", err);
+              setIsScanModalOpen(false);
+              setCylinderId(foundCyl.id);
+              if (foundCyl.refrigerant_id) {
+                setRefrigerantId(foundCyl.refrigerant_id);
+              }
+            });
+          } else {
+            alert(`Gescande code "${decodedText}" is niet herkend als een geregistreerde cilinder.`);
+          }
+        },
+        () => {
+          // Silent frame scanning
+        }
+      );
+
+      setIsTransitioning(false);
+
+      // If started successfully, retrieve camera devices list if not already retrieved
+      if (cameraDevices.length === 0) {
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setCameraDevices(devices);
+
+            if (typeof cameraIdOrConfig !== 'string') {
+              const preferred = findPreferredCamera(devices);
+              setSelectedCameraId(preferred.id);
+            }
+          }
+        } catch (err) {
+          console.error("Error listing cameras after start:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Error starting camera inside startCamera:", err);
+      setIsTransitioning(false);
+
+      // Self-healing fallback: If starting with facingMode constraint failed,
+      // let's immediately query the device list and start the preferred camera ID!
+      if (typeof cameraIdOrConfig !== 'string') {
+        console.log("FacingMode start failed, trying device list fallback...");
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setCameraDevices(devices);
+
+            const preferred = findPreferredCamera(devices);
+            setSelectedCameraId(preferred.id);
+
+            // Retry startCamera recursively with a brief delay
+            await new Promise(resolve => setTimeout(resolve, 200));
+            await startCamera(scanner, preferred.id);
+            return; // Succeeded fallback!
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback camera start failed too:", fallbackErr);
+        }
+      }
+
+      setScanError("Kan de geselecteerde camera niet starten. Kies eventueel een andere camera in de lijst hieronder.");
+    }
+  };
+
+  const handleCameraChange = async (cameraId: string) => {
+    if (isTransitioning) return;
+    setSelectedCameraId(cameraId);
+    if (html5QrCodeInstance) {
+      setScanError(null);
+      await startCamera(html5QrCodeInstance, cameraId);
+    }
+  };
+
+  const handleToggleCamera = async () => {
+    if (isTransitioning || cameraDevices.length <= 1) return;
+    const currentIndex = cameraDevices.findIndex(d => d.id === selectedCameraId);
+    const nextIndex = (currentIndex + 1) % cameraDevices.length;
+    const nextCamera = cameraDevices[nextIndex];
+    if (nextCamera) {
+      await handleCameraChange(nextCamera.id);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -62,10 +214,67 @@ export const Registrations: React.FC = () => {
     }
   };
 
+  // Initialize camera scanner on scan modal open
+  useEffect(() => {
+    let html5QrCode: Html5Qrcode | null = null;
+
+    if (isScanModalOpen) {
+      setScanError(null);
+      setCameraDevices([]);
+      setSelectedCameraId('');
+
+      // Wait a tiny bit for the DOM element to mount/be ready
+      const timer = setTimeout(() => {
+        try {
+          html5QrCode = new Html5Qrcode("reg-scanner-reader", {
+            verbose: false,
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: false
+            }
+          });
+          setHtml5QrCodeInstance(html5QrCode);
+
+          // Get cameras first to select the absolute best hardware camera sensor immediately
+          Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length > 0) {
+              setCameraDevices(devices);
+              const preferred = findPreferredCamera(devices);
+              setSelectedCameraId(preferred.id);
+              if (html5QrCode) {
+                startCamera(html5QrCode, preferred.id);
+              }
+            } else {
+              // Fallback to facingMode if no cameras returned initially
+              if (html5QrCode) {
+                startCamera(html5QrCode, { facingMode: "environment" });
+              }
+            }
+          }).catch(err => {
+            console.warn("Could not list cameras on startup, trying facingMode fallback:", err);
+            if (html5QrCode) {
+              startCamera(html5QrCode, { facingMode: "environment" });
+            }
+          });
+        } catch (e) {
+          console.error("Scanner init error:", e);
+          setScanError("Fout bij het initialiseren van de camera scanner.");
+        }
+      }, 100);
+
+      return () => {
+        clearTimeout(timer);
+        if (html5QrCode && html5QrCode.isScanning) {
+          html5QrCode.stop().catch(err => console.error("Error stopping scanner on cleanup", err));
+        }
+        setHtml5QrCodeInstance(null);
+      };
+    }
+  }, [isScanModalOpen, cylinders]);
+
   const handleOpenAddModal = () => {
     setEditingId(null);
     setInstallationId('');
-    setInstallationType('Commerciële koeling');
+    setInstallationType('Stationaire koeling');
     setNominalChargeKg('');
     if (refrigerants.length > 0) {
       setRefrigerantId(refrigerants[0].id);
@@ -82,7 +291,7 @@ export const Registrations: React.FC = () => {
   const handleOpenEditModal = (reg: Registration) => {
     setEditingId(reg.id);
     setInstallationId(reg.installation_id);
-    setInstallationType(reg.installation_type || 'Commerciële koeling');
+    setInstallationType(reg.installation_type || 'Stationaire koeling');
     setNominalChargeKg(reg.nominal_charge_kg ? reg.nominal_charge_kg.toString() : '');
     setRefrigerantId(reg.refrigerant_id);
     setAmountKg(reg.amount_kg.toString());
@@ -120,8 +329,7 @@ export const Registrations: React.FC = () => {
       amount_kg: parseFloat(amountKg),
       mutation,
       reason,
-      date,
-      cylinder_id: cylinderId || undefined
+      date
     };
 
     if (installationType) {
@@ -129,6 +337,9 @@ export const Registrations: React.FC = () => {
     }
     if (nominalChargeKg) {
       data.nominal_charge_kg = parseFloat(nominalChargeKg);
+    }
+    if (cylinderId) {
+      data.cylinder_id = cylinderId;
     }
 
     try {
@@ -146,7 +357,6 @@ export const Registrations: React.FC = () => {
     }
   };
 
-  // Filter registrations
   // Filter registrations
   const filteredRegistrations = registrations.filter((reg) => {
     const regYear = new Date(reg.date).getFullYear();
@@ -193,7 +403,7 @@ export const Registrations: React.FC = () => {
         reg.nominal_charge_kg ? `${reg.nominal_charge_kg.toFixed(3)} kg` : '-',
         reg.refrigerant_name || '-',
         reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1),
-        `${reg.amount_kg.toFixed(2)} kg`,
+        `${reg.amount_kg.toFixed(3)} kg`,
         reg.co2_equivalent ? `${reg.co2_equivalent.toFixed(2)} Ton` : '-',
         reg.reason.charAt(0).toUpperCase() + reg.reason.slice(1)
       ];
@@ -222,7 +432,7 @@ export const Registrations: React.FC = () => {
             Beheer en registreer handelingen (vulling, terugwinning, etc.) op installatieniveau.
           </p>
         </div>
-        <div className="flex items-center gap-3 self-start sm:sm:self-center">
+        <div className="flex items-center gap-3 self-start sm:self-center">
           {/* Year Picker */}
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -348,14 +558,9 @@ export const Registrations: React.FC = () => {
                     <td className="px-4 py-3 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg.toFixed(3)} kg` : '-'}</td>
                     <td className="px-4 py-3">
                       <span className="font-medium text-zinc-800">{reg.refrigerant_name}</span>
-                      {reg.cylinder_id && cylinders.length > 0 && (
-                        <div className="text-[11px] text-blue-600 font-bold mt-0.5">
-                          Fles: {cylinders.find(c => String(c.id).trim() === String(reg.cylinder_id).trim())?.serial_number || `Onbekend (ID: ${reg.cylinder_id})`}
-                        </div>
-                      )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                         reg.mutation === 'toevoeging' || reg.mutation === 'afrekening'
                           ? 'bg-amber-50 text-amber-700'
                           : 'bg-emerald-50 text-emerald-700'
@@ -452,6 +657,7 @@ export const Registrations: React.FC = () => {
                   onChange={(e) => setInstallationType(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
+                  <option value="Stationaire koeling">Stationaire koeling</option>
                   <option value="Commerciële koeling">Commerciële koeling</option>
                   <option value="Transportkoeling">Transportkoeling</option>
                   <option value="Industriële koeling">Industriële koeling</option>
@@ -473,6 +679,45 @@ export const Registrations: React.FC = () => {
                   onChange={(e) => setNominalChargeKg(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 />
+              </div>
+
+              {/* Cylinder Selection (with QR Scan option) */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                  Gekoppelde Cilinder (Optioneel)
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <select
+                      value={cylinderId}
+                      onChange={(e) => {
+                        setCylinderId(e.target.value);
+                        const cyl = cylinders.find(c => c.id === e.target.value);
+                        if (cyl && cyl.refrigerant_id && cyl.type !== 'mix') {
+                          setRefrigerantId(cyl.refrigerant_id);
+                        }
+                      }}
+                      className="appearance-none px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">-- Geen cilinder koppelen --</option>
+                      {cylinders.map((cyl) => (
+                        <option key={cyl.id} value={cyl.id}>
+                          {cyl.cylinder_number} ({cyl.refrigerant_name})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsScanModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-3.5 rounded-lg border border-zinc-200 text-sm font-medium transition-colors"
+                    title="Scan QR-code van cilinder"
+                  >
+                    <QrCode className="h-4 w-4 text-zinc-600" />
+                    <span>Scan QR</span>
+                  </button>
+                </div>
               </div>
 
               {/* Date */}
@@ -499,57 +744,16 @@ export const Registrations: React.FC = () => {
                 </label>
                 <select
                   value={refrigerantId}
-                  onChange={(e) => {
-                    setRefrigerantId(e.target.value);
-                    setCylinderId(''); // Reset selected cylinder when refrigerant changes
-                  }}
+                  onChange={(e) => setRefrigerantId(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
                   {refrigerants.map((ref) => (
                     <option key={ref.id} value={ref.id}>
-                      {ref.name} (GWP: {ref.gwp}, Voorraad: {ref.current_stock_kg.toFixed(1)} kg)
+                      {ref.name} (GWP: {ref.gwp}, Voorraad: {(ref.current_stock_kg !== undefined && ref.current_stock_kg !== null) ? Number(ref.current_stock_kg).toFixed(3) : '0.000'} kg)
                     </option>
                   ))}
                 </select>
               </div>
-
-              {/* Cylinder Selector */}
-              {refrigerantId && (
-                <div>
-                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                    Gekoppelde Cilinder (Optioneel)
-                  </label>
-                  <select
-                    value={cylinderId}
-                    onChange={(e) => setCylinderId(e.target.value)}
-                    className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-semibold"
-                  >
-                    <option value="">Geen cilinder koppelen</option>
-                    {cylinders
-                      .filter(c => c.refrigerant_id === refrigerantId)
-                      .map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.serial_number} (Gewicht: {c.current_weight.toFixed(2)} kg)
-                        </option>
-                      ))
-                    }
-                  </select>
-                  {cylinderId && cylinders.length > 0 && (
-                    <p className="text-[11px] text-zinc-500 font-medium leading-normal mt-1 italic">
-                      {(() => {
-                        const selectedCyl = cylinders.find(c => c.id === cylinderId);
-                        if (!selectedCyl) return null;
-                        const kg = parseFloat(amountKg) || 0;
-                        const predictedWeight = mutation === 'terugwinning' 
-                          ? selectedCyl.current_weight + kg
-                          : selectedCyl.current_weight - kg;
-                        const weightDiff = predictedWeight - selectedCyl.tare_weight;
-                        return `Verwacht nieuw gewicht: ${predictedWeight.toFixed(2)} kg (tarra: ${selectedCyl.tare_weight.toFixed(2)} kg, gas: ${weightDiff.toFixed(2)} kg)`;
-                      })()}
-                    </p>
-                  )}
-                </div>
-              )}
 
               {/* Amount kg */}
               <div>
@@ -558,8 +762,8 @@ export const Registrations: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  step="0.01"
-                  min="0.01"
+                  step="0.001"
+                  min="0.001"
                   required
                   placeholder="Bijv. 4.5"
                   value={amountKg}
@@ -575,21 +779,12 @@ export const Registrations: React.FC = () => {
                 </label>
                 <select
                   value={mutation}
-                  onChange={(e) => {
-                    const val = e.target.value as any;
-                    setMutation(val);
-                    if (val === 'afvoer') {
-                      setReason('vernietiging');
-                    } else if (reason === 'vernietiging' || reason === 'recycling') {
-                      setReason('onderhoud');
-                    }
-                  }}
+                  onChange={(e) => setMutation(e.target.value as any)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
                   <option value="toevoeging">Toevoeging (Vullen installatie, vermindert nieuw gas voorraad)</option>
-                  <option value="terugwinning">Terugwinning (Uit installatie naar voorraad/reclaim voorraad)</option>
+                  <option value="terugwinning">Terugwinning (Uit installatie naar voorraad/reclaim cilinder)</option>
                   <option value="afrekening">Afrekening (Verbruikt, vermindert nieuw gas voorraad)</option>
-                  <option value="afvoer">Afvoer (Afvoeren van ingezameld koudemiddel, vermindert reclaim voorraad)</option>
                 </select>
               </div>
 
@@ -603,22 +798,13 @@ export const Registrations: React.FC = () => {
                   onChange={(e) => setReason(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                 >
-                  {mutation === 'afvoer' ? (
-                    <>
-                      <option value="vernietiging">Vernietiging (Afvoer naar leverancier voor vernietiging)</option>
-                      <option value="recycling">Recycling (Afvoer naar leverancier voor recycling)</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="onderhoud">Onderhoud / Service</option>
-                      <option value="nieuwbouw">Nieuwbouw / Eerste vulling</option>
-                      <option value="retrofit">Retrofit (Omschakeling)</option>
-                      <option value="lekkage">Lekkage herstel</option>
-                      <option value="buitengebruikstelling">Buitengebruikstelling / Sloop</option>
-                      <option value="vernietiging">Afvoer t.b.v. Vernietiging (Gaat naar Reclaim Cilinder)</option>
-                      <option value="recycling">Afvoer t.b.v. Recycling (Gaat naar Reclaim Cilinder)</option>
-                    </>
-                  )}
+                  <option value="onderhoud">Onderhoud / Service</option>
+                  <option value="nieuwbouw">Nieuwbouw / Eerste vulling</option>
+                  <option value="retrofit">Retrofit (Omschakeling)</option>
+                  <option value="lekkage">Lekkage herstel</option>
+                  <option value="buitengebruikstelling">Buitengebruikstelling / Sloop</option>
+                  <option value="vernietiging">Afvoer t.b.v. Vernietiging (Gaat naar Reclaim Cilinder)</option>
+                  <option value="recycling">Afvoer t.b.v. Recycling (Gaat naar Reclaim Cilinder)</option>
                 </select>
               </div>
 
@@ -651,6 +837,113 @@ export const Registrations: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* QR Scanner Modal */}
+      <div className={`fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm items-center justify-center p-4 animate-fade-in ${isScanModalOpen ? 'flex' : 'hidden'}`}>
+        <div className="bg-white rounded-xl shadow-xl border border-zinc-200 max-w-md w-full overflow-hidden animate-scale-up">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50">
+            <h2 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-blue-600" />
+              Cilinder QR scannen
+            </h2>
+            <button
+              onClick={() => setIsScanModalOpen(false)}
+              className="text-zinc-400 hover:text-zinc-600 rounded-md p-1"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {scanError ? (
+              <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm border border-red-100 text-center space-y-2">
+                <p>{scanError}</p>
+                <button
+                  onClick={() => { setScanError(null); setIsScanModalOpen(false); setTimeout(() => setIsScanModalOpen(true), 100); }}
+                  className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-red-700 transition-colors"
+                >
+                  Opnieuw proberen
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-xs text-zinc-500 text-center bg-zinc-50 p-2.5 rounded-lg border border-zinc-100">
+                  Richt de camera van uw mobiel of tablet op de QR-code sticker van de cilinder om deze te koppelen en het koudemiddel automatisch in te vullen.
+                </div>
+                
+                {/* Camera view element */}
+                <div className="overflow-hidden rounded-xl border border-zinc-200 aspect-square bg-zinc-950 relative flex items-center justify-center min-h-[300px]">
+                  <div id="reg-scanner-reader" className="w-full h-full min-h-[300px]"></div>
+                  
+                  {/* Visual scanner overlay target */}
+                  <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-12 pointer-events-none rounded-lg flex items-center justify-center">
+                    <div className="w-4 h-4 border-t-2 border-l-2 border-blue-500 absolute top-0 left-0"></div>
+                    <div className="w-4 h-4 border-t-2 border-r-2 border-blue-500 absolute top-0 right-0"></div>
+                    <div className="w-4 h-4 border-b-2 border-l-2 border-blue-500 absolute bottom-0 left-0"></div>
+                    <div className="w-4 h-4 border-b-2 border-r-2 border-blue-500 absolute bottom-0 right-0"></div>
+                    <div className="w-full h-0.5 bg-blue-500/40 animate-pulse absolute"></div>
+                  </div>
+
+                  {/* Camera toggle floating button over video */}
+                  {cameraDevices.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={isTransitioning}
+                      onClick={handleToggleCamera}
+                      className="absolute bottom-4 right-4 bg-zinc-900/85 hover:bg-zinc-800 text-white p-3 rounded-full shadow-lg border border-zinc-700/50 transition-all cursor-pointer z-10 flex items-center justify-center hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                      title="Wissel van camera"
+                    >
+                      <RefreshCw className={`h-5 w-5 ${isTransitioning ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Camera Selector Dropdown */}
+                {cameraDevices.length > 1 && (
+                  <div className="space-y-1">
+                    <label className="block text-2xs font-bold text-zinc-400 uppercase tracking-wider">
+                      Wissel van Camera (indien zwart beeld)
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          disabled={isTransitioning}
+                          value={selectedCameraId}
+                          onChange={(e) => handleCameraChange(e.target.value)}
+                          className="appearance-none pl-3 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-zinc-700 font-medium disabled:opacity-50"
+                        >
+                          {cameraDevices.map((device, idx) => (
+                            <option key={device.id} value={device.id}>
+                              {device.label || `Camera ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 pointer-events-none" />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isTransitioning}
+                        onClick={handleToggleCamera}
+                        className="flex items-center justify-center px-3.5 rounded-lg border border-zinc-200 hover:border-blue-500 hover:bg-blue-50/50 text-zinc-600 hover:text-blue-600 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                        title="Volgende camera"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${isTransitioning ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setIsScanModalOpen(false)}
+              className="w-full px-4 py-2.5 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-sm font-medium rounded-lg transition-colors"
+            >
+              Annuleren
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
