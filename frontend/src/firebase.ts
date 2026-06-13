@@ -22,11 +22,16 @@ export interface Refrigerant {
 
 export interface Cylinder {
   id: string;
-  serial_number: string;
+  cylinder_number: string; // Barcode or unique physical ID
+  type: 'nieuw' | 'reclaim' | 'recycling' | 'huur' | 'eigendom' | 'mix'; 
   refrigerant_id: string;
-  tare_weight: number;
-  current_weight: number;
-  cylinder_card?: string;
+  refrigerant_name?: string;
+  tare_weight_kg: number; // Empty weight
+  max_capacity_kg: number; // Maximum filling capacity
+  inspection_date: string; // YYYY-MM-DD
+  status: 'magazijn' | 'monteur' | 'retour_leverancier' | 'leeg' | 'vermist';
+  location?: string; // Optional field for mechanic name or specific van
+  created_at?: string;
 }
 
 export interface Registration {
@@ -36,12 +41,12 @@ export interface Registration {
   nominal_charge_kg?: number;
   refrigerant_id: string;
   refrigerant_name?: string; // resolved in helper
+  cylinder_id?: string; // Link to the specific cylinder used
   amount_kg: number;
   mutation: 'toevoeging' | 'afrekening' | 'terugwinning' | 'afvoer' | 'inkoop'; // Dutch mutations
   reason: string; // e.g., 'nieuwbouw', 'retrofit', 'lekkage', 'onderhoud', 'buitengebruikstelling', 'inkoop'
   date: string; // YYYY-MM-DD
   co2_equivalent: number; // calculated: amount_kg * (gwp / 1000)
-  cylinder_id?: string;
 }
 
 export interface AnnualBalance {
@@ -71,6 +76,7 @@ export interface FirebaseConfig {
 
 const STORAGE_KEY_CONFIG = "kmr_firebase_config";
 const STORAGE_KEY_REFRIGERANTS = "kmr_local_refrigerants";
+const STORAGE_KEY_CYLINDERS = "kmr_local_cylinders";
 const STORAGE_KEY_REGISTRATIONS = "kmr_local_registrations";
 const STORAGE_KEY_BALANCES = "kmr_local_balances";
 
@@ -278,6 +284,116 @@ class DatabaseService {
     localStorage.setItem(STORAGE_KEY_REFRIGERANTS, JSON.stringify(filtered));
   }
 
+  // --- Cylinders (Flessen) CRUD ---
+
+  public async getCylinders(): Promise<Cylinder[]> {
+    const refrigerants = await this.getRefrigerants();
+    const refMap = new Map(refrigerants.map(r => [r.id, r]));
+
+    if (this.isFirebase && this.db) {
+      try {
+        const snap = await this.withTimeout(getDocs(collection(this.db, "cylinders")), 3500);
+        const list: Cylinder[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          const ref = refMap.get(data.refrigerant_id);
+          list.push({ 
+            id: docSnap.id, 
+            ...data,
+            refrigerant_name: ref ? ref.name : (data.refrigerant_id === 'mix' ? "Mengsel (Vernietiging)" : "Onbekend")
+          } as Cylinder);
+        });
+        return list.sort((a, b) => new Date(a.inspection_date).getTime() - new Date(b.inspection_date).getTime());
+      } catch (e) {
+        console.error("Firebase error, falling back to LocalStorage:", e);
+      }
+    }
+
+    // LocalStorage fallback
+    if (!localStorage.getItem(STORAGE_KEY_CYLINDERS)) {
+      localStorage.setItem(STORAGE_KEY_CYLINDERS, JSON.stringify([]));
+    }
+    const list: Cylinder[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CYLINDERS) || "[]");
+    return list.map(cyl => {
+      const ref = refMap.get(cyl.refrigerant_id);
+      return {
+        ...cyl,
+        refrigerant_name: ref ? ref.name : (cyl.refrigerant_id === 'mix' ? "Mengsel (Vernietiging)" : "Onbekend")
+      };
+    }).sort((a, b) => new Date(a.inspection_date).getTime() - new Date(b.inspection_date).getTime());
+  }
+
+  public async addCylinder(cyl: Omit<Cylinder, "id" | "refrigerant_name">): Promise<Cylinder> {
+    const refrigerants = await this.getRefrigerants();
+    const isMix = cyl.refrigerant_id === 'mix' || cyl.type === 'mix';
+    const ref = isMix ? null : refrigerants.find(r => r.id === cyl.refrigerant_id);
+    
+    if (!isMix && !ref) throw new Error("Koudemiddel niet gevonden");
+
+    const fullCylData = { 
+      ...cyl, 
+      refrigerant_id: isMix ? 'mix' : cyl.refrigerant_id,
+      created_at: new Date().toISOString() 
+    };
+
+    if (this.isFirebase && this.db) {
+      try {
+        const docRef = await addDoc(collection(this.db, "cylinders"), fullCylData);
+        return { id: docRef.id, ...fullCylData, refrigerant_name: isMix ? "Mengsel (Vernietiging)" : ref!.name };
+      } catch (e) {
+        console.error("Firebase add error:", e);
+        throw new Error("Fout bij opslaan cilinder in Firebase: " + (e as Error).message);
+      }
+    }
+
+    // LocalStorage
+    const list = JSON.parse(localStorage.getItem(STORAGE_KEY_CYLINDERS) || "[]");
+    const newCyl: Cylinder = {
+      id: "cyl_" + Date.now(),
+      ...fullCylData
+    };
+    list.push(newCyl);
+    localStorage.setItem(STORAGE_KEY_CYLINDERS, JSON.stringify(list));
+    return { ...newCyl, refrigerant_name: isMix ? "Mengsel (Vernietiging)" : ref!.name };
+  }
+
+  public async updateCylinder(id: string, updates: Partial<Cylinder>): Promise<void> {
+    if (this.isFirebase && this.db) {
+      try {
+        await updateDoc(doc(this.db, "cylinders", id), updates);
+        return;
+      } catch (e) {
+        console.error("Firebase update error:", e);
+        throw new Error("Fout bij bijwerken cilinder in Firebase: " + (e as Error).message);
+      }
+    }
+
+    // LocalStorage
+    const list = JSON.parse(localStorage.getItem(STORAGE_KEY_CYLINDERS) || "[]");
+    const index = list.findIndex((c: any) => c.id === id);
+    if (index !== -1) {
+      list[index] = { ...list[index], ...updates };
+      localStorage.setItem(STORAGE_KEY_CYLINDERS, JSON.stringify(list));
+    }
+  }
+
+  public async deleteCylinder(id: string): Promise<void> {
+    if (this.isFirebase && this.db) {
+      try {
+        await deleteDoc(doc(this.db, "cylinders", id));
+        return;
+      } catch (e) {
+        console.error("Firebase delete error:", e);
+        throw new Error("Fout bij verwijderen cilinder in Firebase: " + (e as Error).message);
+      }
+    }
+
+    // LocalStorage
+    const list = JSON.parse(localStorage.getItem(STORAGE_KEY_CYLINDERS) || "[]");
+    const filtered = list.filter((c: any) => c.id !== id);
+    localStorage.setItem(STORAGE_KEY_CYLINDERS, JSON.stringify(filtered));
+  }
+
   // --- Registration (Installatie Niveau) CRUD ---
 
   public async getRegistrations(): Promise<Registration[]> {
@@ -360,26 +476,7 @@ class DatabaseService {
     if (reg.nominal_charge_kg !== undefined) {
       fullRegData.nominal_charge_kg = reg.nominal_charge_kg;
     }
-
-    // Adjust cylinder weight if cylinder_id is provided
-    if (reg.cylinder_id) {
-      const cylinders = await this.getCylinders();
-      const cyl = cylinders.find(c => c.id === reg.cylinder_id);
-      if (!cyl) throw new Error("Geselecteerde cilinder bestaat niet");
-      if (cyl.refrigerant_id !== reg.refrigerant_id) {
-        throw new Error("Koudemiddel van geselecteerde cilinder komt niet overeen met registratie");
-      }
-
-      let newWeight = cyl.current_weight;
-      if (reg.mutation === "terugwinning") {
-        newWeight += reg.amount_kg;
-      } else if (reg.mutation === "toevoeging" || reg.mutation === "afrekening") {
-        newWeight -= reg.amount_kg;
-        if (newWeight < cyl.tare_weight) {
-          throw new Error(`Onvoldoende koudemiddel in geselecteerde cilinder. Huidig gewicht (${cyl.current_weight.toFixed(2)} kg) minus gevulde hoeveelheid (${reg.amount_kg.toFixed(2)} kg) is minder dan leeggewicht (${cyl.tare_weight.toFixed(2)} kg).`);
-        }
-      }
-      await this.updateCylinder(cyl.id, { current_weight: parseFloat(newWeight.toFixed(2)) });
+    if (reg.cylinder_id !== undefined) {
       fullRegData.cylinder_id = reg.cylinder_id;
     }
 
@@ -425,7 +522,7 @@ class DatabaseService {
     const refrigerants = await this.getRefrigerants();
     const oldRef = refrigerants.find(r => r.id === oldReg.refrigerant_id);
 
-    // Revert old koudemiddel impact
+    // Revert old impact
     if (oldRef) {
       const { stockDiff: oldStockDiff, reclaimDiff: oldReclaimDiff } = this.calculateStockImpact(oldReg);
       const currentReclaim = oldRef.reclaim_stock_kg || 0;
@@ -435,22 +532,8 @@ class DatabaseService {
       });
     }
 
-    // Revert old cylinder weight change
-    const cylinders = await this.getCylinders();
-    const oldCyl = oldReg.cylinder_id ? cylinders.find(c => c.id === oldReg.cylinder_id) : null;
-    if (oldCyl) {
-      let revertedWeight = oldCyl.current_weight;
-      if (oldReg.mutation === "terugwinning") {
-        revertedWeight -= oldReg.amount_kg;
-      } else if (oldReg.mutation === "toevoeging" || oldReg.mutation === "afrekening") {
-        revertedWeight += oldReg.amount_kg;
-      }
-      await this.updateCylinder(oldCyl.id, { current_weight: parseFloat(revertedWeight.toFixed(2)) });
-    }
-
-    // Refresh refrigerants list & cylinders list to get latest stocks before applying new changes
+    // Refresh refrigerants list to get latest stocks before applying new changes
     const refreshedRefrigerants = await this.getRefrigerants();
-    const refreshedCylinders = await this.getCylinders();
 
     // Now calculate new impact
     const activeRefId = updates.refrigerant_id || oldReg.refrigerant_id;
@@ -464,27 +547,6 @@ class DatabaseService {
     const date = updates.date || oldReg.date;
 
     const co2_equivalent = parseFloat(((amount * activeRef.gwp) / 1000).toFixed(2));
-
-    // Apply new cylinder weight change
-    const newCylId = updates.cylinder_id !== undefined ? updates.cylinder_id : oldReg.cylinder_id;
-    if (newCylId) {
-      const newCyl = refreshedCylinders.find(c => c.id === newCylId);
-      if (!newCyl) throw new Error("Nieuwe cilinder niet gevonden");
-      if (newCyl.refrigerant_id !== activeRefId) {
-        throw new Error("Koudemiddel van nieuwe cilinder komt niet overeen met registratie");
-      }
-
-      let newWeight = newCyl.current_weight;
-      if (mutation === "terugwinning") {
-        newWeight += amount;
-      } else if (mutation === "toevoeging" || mutation === "afrekening") {
-        newWeight -= amount;
-        if (newWeight < newCyl.tare_weight) {
-          throw new Error(`Onvoldoende koudemiddel in geselecteerde cilinder. Huidig gewicht (${newCyl.current_weight.toFixed(2)} kg) minus gevulde hoeveelheid (${amount.toFixed(2)} kg) is minder dan leeggewicht (${newCyl.tare_weight.toFixed(2)} kg).`);
-        }
-      }
-      await this.updateCylinder(newCyl.id, { current_weight: parseFloat(newWeight.toFixed(2)) });
-    }
 
     const tempRegForImpact = { mutation, reason, amount_kg: amount };
     const { stockDiff: newStockDiff, reclaimDiff: newReclaimDiff } = this.calculateStockImpact(tempRegForImpact);
@@ -502,8 +564,7 @@ class DatabaseService {
       mutation,
       reason,
       date,
-      co2_equivalent,
-      cylinder_id: newCylId || null
+      co2_equivalent
     };
 
     if (updates.installation_type !== undefined) {
@@ -516,6 +577,12 @@ class DatabaseService {
       finalUpdates.nominal_charge_kg = updates.nominal_charge_kg;
     } else if (oldReg.nominal_charge_kg) {
       finalUpdates.nominal_charge_kg = oldReg.nominal_charge_kg;
+    }
+
+    if (updates.cylinder_id !== undefined) {
+      finalUpdates.cylinder_id = updates.cylinder_id;
+    } else if (oldReg.cylinder_id) {
+      finalUpdates.cylinder_id = oldReg.cylinder_id;
     }
 
     if (this.isFirebase && this.db) {
@@ -545,7 +612,7 @@ class DatabaseService {
     const refrigerants = await this.getRefrigerants();
     const ref = refrigerants.find(r => r.id === reg.refrigerant_id);
 
-    // Revert koudemiddel stock impact
+    // Revert stock impact
     if (ref) {
       const { stockDiff, reclaimDiff } = this.calculateStockImpact(reg);
       const currentReclaim = ref.reclaim_stock_kg || 0;
@@ -553,21 +620,6 @@ class DatabaseService {
         current_stock_kg: parseFloat(Math.max(0, ref.current_stock_kg - stockDiff).toFixed(3)),
         reclaim_stock_kg: parseFloat(Math.max(0, currentReclaim - reclaimDiff).toFixed(3))
       });
-    }
-
-    // Revert cylinder weight change
-    if (reg.cylinder_id) {
-      const cylinders = await this.getCylinders();
-      const cyl = cylinders.find(c => c.id === reg.cylinder_id);
-      if (cyl) {
-        let revertedWeight = cyl.current_weight;
-        if (reg.mutation === "terugwinning") {
-          revertedWeight -= reg.amount_kg;
-        } else if (reg.mutation === "toevoeging" || reg.mutation === "afrekening") {
-          revertedWeight += reg.amount_kg;
-        }
-        await this.updateCylinder(cyl.id, { current_weight: parseFloat(revertedWeight.toFixed(2)) });
-      }
     }
 
     if (this.isFirebase && this.db) {
@@ -584,85 +636,6 @@ class DatabaseService {
     const list = JSON.parse(localStorage.getItem(STORAGE_KEY_REGISTRATIONS) || "[]");
     const filtered = list.filter((r: any) => r.id !== id);
     localStorage.setItem(STORAGE_KEY_REGISTRATIONS, JSON.stringify(filtered));
-  }
-
-  // --- Cylinder CRUD ---
-
-  public async getCylinders(): Promise<Cylinder[]> {
-    if (this.isFirebase && this.db) {
-      try {
-        const snap = await this.withTimeout(getDocs(collection(this.db, "cylinders")), 3500);
-        const list: Cylinder[] = [];
-        snap.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() } as Cylinder);
-        });
-        return list;
-      } catch (e) {
-        console.error("Firebase error, falling back to LocalStorage:", e);
-      }
-    }
-
-    // LocalStorage fallback
-    if (!localStorage.getItem("kmr_local_cylinders")) {
-      localStorage.setItem("kmr_local_cylinders", JSON.stringify([]));
-    }
-    return JSON.parse(localStorage.getItem("kmr_local_cylinders") || "[]");
-  }
-
-  public async addCylinder(cyl: Omit<Cylinder, "id">): Promise<Cylinder> {
-    if (this.isFirebase && this.db) {
-      try {
-        const docRef = await addDoc(collection(this.db, "cylinders"), cyl);
-        return { id: docRef.id, ...cyl };
-      } catch (e) {
-        console.error("Firebase add cylinder error:", e);
-        throw new Error("Fout bij opslaan cilinder in Firebase: " + (e as Error).message);
-      }
-    }
-
-    const list = await this.getCylinders();
-    const newCyl: Cylinder = {
-      id: "cyl_" + Date.now(),
-      ...cyl
-    };
-    list.push(newCyl);
-    localStorage.setItem("kmr_local_cylinders", JSON.stringify(list));
-    return newCyl;
-  }
-
-  public async updateCylinder(id: string, updates: Partial<Cylinder>): Promise<void> {
-    if (this.isFirebase && this.db) {
-      try {
-        await updateDoc(doc(this.db, "cylinders", id), updates);
-        return;
-      } catch (e) {
-        console.error("Firebase update cylinder error:", e);
-        throw new Error("Fout bij bijwerken cilinder in Firebase: " + (e as Error).message);
-      }
-    }
-
-    const list = await this.getCylinders();
-    const index = list.findIndex(c => c.id === id);
-    if (index !== -1) {
-      list[index] = { ...list[index], ...updates };
-      localStorage.setItem("kmr_local_cylinders", JSON.stringify(list));
-    }
-  }
-
-  public async deleteCylinder(id: string): Promise<void> {
-    if (this.isFirebase && this.db) {
-      try {
-        await deleteDoc(doc(this.db, "cylinders", id));
-        return;
-      } catch (e) {
-        console.error("Firebase delete cylinder error:", e);
-        throw new Error("Fout bij verwijderen cilinder in Firebase: " + (e as Error).message);
-      }
-    }
-
-    const list = await this.getCylinders();
-    const filtered = list.filter(c => c.id !== id);
-    localStorage.setItem("kmr_local_cylinders", JSON.stringify(filtered));
   }
 
   // --- Annual Balances (Koudemiddel Jaarbalans) ---
@@ -754,14 +727,16 @@ class DatabaseService {
       // Starting weight defaults to:
       // 1. Explicitly saved start weight for this year
       // 2. Otherwise, the previous year's actual_weight_kg (if saved)
-      // 3. Otherwise, the current cylinder stock of the koudemiddel (as a fallback)
+      // 3. Otherwise, the current cylinder stock of the koudemiddel minus the net year impact of mutations (as a fallback)
       let start_weight_kg = 0;
       if (saved && saved.start_weight_kg !== undefined) {
         start_weight_kg = saved.start_weight_kg;
       } else if (prevSaved && prevSaved.actual_weight_kg !== undefined) {
         start_weight_kg = prevSaved.actual_weight_kg;
       } else {
-        start_weight_kg = ref.current_stock_kg; // Default to current cylinder stock as initial start weight
+        // Fallback: Current stock today minus the net impact of the current year's mutations
+        const net_year_impact = total_purchased + total_recovered - total_sold - total_disposed;
+        start_weight_kg = parseFloat((ref.current_stock_kg - net_year_impact).toFixed(2));
       }
       
       // Calculate End Weight: Start Weight + Purchased + Recovered - Sold - Disposed
@@ -886,7 +861,7 @@ class DatabaseService {
       
       const key = `${reg.installation_id}_${firebaseRefId}_${reg.amount_kg}_${reg.date}_${reg.mutation}`;
       if (!firebaseRegsSet.has(key)) {
-        const cleanReg = {
+        const cleanReg: any = {
           installation_id: reg.installation_id,
           installation_type: reg.installation_type,
           nominal_charge_kg: reg.nominal_charge_kg,
@@ -897,6 +872,9 @@ class DatabaseService {
           date: reg.date,
           co2_equivalent: reg.co2_equivalent
         };
+        if (reg.cylinder_id) {
+          cleanReg.cylinder_id = reg.cylinder_id;
+        }
         await addDoc(collection(this.db, "registrations"), cleanReg);
         registrationsMigrated++;
       }

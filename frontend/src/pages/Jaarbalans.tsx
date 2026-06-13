@@ -313,7 +313,7 @@ export const Jaarbalans: React.FC = () => {
   const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
+    <div className="space-y-6 max-w-none w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -425,30 +425,30 @@ export const Jaarbalans: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
-                    <th className="px-4 py-4">Koudemiddel</th>
-                    <th className="px-4 py-4 text-center">GWP</th>
-                    <th className="px-4 py-4">Beginstand (1 Jan) *</th>
-                    <th className="px-4 py-4">Ingekocht (+)</th>
-                    <th className="px-4 py-4">Teruggewonnen (+)</th>
-                    <th className="px-4 py-4">Verkocht (-)</th>
-                    <th className="px-4 py-4">Afgevoerd (-)</th>
-                    <th className="px-4 py-4">Berekende Eindstand</th>
-                    <th className="px-4 py-4">Werkelijke Eindstand *</th>
-                    <th className="px-4 py-4 text-center">Verschil</th>
-                    <th className="px-4 py-4 text-right">Acties</th>
+                    <th className="px-2 py-3">Koudemiddel</th>
+                    <th className="px-2 py-3 text-center">GWP</th>
+                    <th className="px-2 py-3">Beginstand (1 Jan) *</th>
+                    <th className="px-2 py-3">Ingekocht (+)</th>
+                    <th className="px-2 py-3">Teruggewonnen (+)</th>
+                    <th className="px-2 py-3">Verkocht (-)</th>
+                    <th className="px-2 py-3">Afgevoerd (-)</th>
+                    <th className="px-2 py-3">Berekende Eindstand</th>
+                    <th className="px-2 py-3">Werkelijke Eindstand *</th>
+                    <th className="px-2 py-3 text-center">Verschil</th>
+                    <th className="px-2 py-3 text-right">Acties</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-200 text-sm font-medium">
+                <tbody className="divide-y divide-zinc-200 text-xs font-medium">
                   {balances.map((bal) => {
                     const diffVal = parseFloat((bal.actual_weight_kg - bal.end_weight_kg).toFixed(2));
                     
                     return (
                       <tr key={bal.id} className="hover:bg-zinc-50/50 transition-colors">
-                        <td className="px-4 py-4 font-bold text-zinc-900">{bal.refrigerant_name}</td>
-                        <td className="px-4 py-4 text-center text-zinc-500 font-mono">{bal.gwp}</td>
+                        <td className="px-2 py-3 font-bold text-zinc-900">{bal.refrigerant_name}</td>
+                        <td className="px-2 py-3 text-center text-zinc-500 font-mono">{bal.gwp}</td>
                         
                         {/* Start weight (Editable in Row Edit Mode) */}
-                        <td className="px-4 py-4">
+                        <td className="px-2 py-3">
                           {editingId === bal.id ? (
                             <div className="space-y-1">
                               <span className="block text-2xs font-bold text-zinc-400">BEGINSTAND</span>
@@ -457,7 +457,7 @@ export const Jaarbalans: React.FC = () => {
                                 step="0.1"
                                 value={editStartWeight}
                                 onChange={(e) => setEditStartWeight(e.target.value)}
-                                className="px-2 py-1 border border-blue-500 rounded text-sm w-20 text-right font-mono focus:outline-none bg-blue-50/20"
+                                className="px-2 py-1 border border-blue-500 rounded text-xs w-20 text-right font-mono focus:outline-none bg-blue-50/20"
                               />
                             </div>
                           ) : (
@@ -471,13 +471,13 @@ export const Jaarbalans: React.FC = () => {
                         </td>
                         
                         {/* Constants */}
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_purchased.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_recovered.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_sold.toFixed(1)} kg</td>
-                        <td className="px-4 py-4 text-zinc-600 font-mono">{bal.total_disposed.toFixed(1)} kg</td>
+                        <td className="px-2 py-3 text-zinc-600 font-mono">{bal.total_purchased.toFixed(1)} kg</td>
+                        <td className="px-2 py-3 text-zinc-600 font-mono">{bal.total_recovered.toFixed(1)} kg</td>
+                        <td className="px-2 py-3 text-zinc-600 font-mono">{bal.total_sold.toFixed(1)} kg</td>
+                        <td className="px-2 py-3 text-zinc-600 font-mono">{bal.total_disposed.toFixed(1)} kg</td>
                         
                         {/* Calculated end weight (Berekende voorraad, read-only) */}
-                        <td className="px-4 py-4 font-mono bg-zinc-50/50">
+                        <td className="px-2 py-3 font-mono bg-zinc-50/50">
                           <div className="font-semibold text-zinc-600">{bal.end_weight_kg.toFixed(1)} kg</div>
                           <div className="text-2xs text-zinc-400 font-mono font-normal mt-0.5">
                             {((bal.end_weight_kg * (bal.gwp || 0)) / 1000).toFixed(2)} Ton CO₂
@@ -485,7 +485,7 @@ export const Jaarbalans: React.FC = () => {
                         </td>
 
                         {/* Actual weight (Werkelijke voorraad, Editable in Row Edit Mode) */}
-                        <td className="px-4 py-4">
+                        <td className="px-2 py-3">
                           {editingId === bal.id ? (
                             <div className="space-y-1">
                               <span className="block text-2xs font-bold text-zinc-400">WERKELIJK</span>
@@ -494,7 +494,7 @@ export const Jaarbalans: React.FC = () => {
                                 step="0.1"
                                 value={editActualWeight}
                                 onChange={(e) => setEditActualWeight(e.target.value)}
-                                className="px-2 py-1 border border-blue-500 rounded text-sm w-20 text-right font-mono focus:outline-none bg-blue-50/20"
+                                className="px-2 py-1 border border-blue-500 rounded text-xs w-20 text-right font-mono focus:outline-none bg-blue-50/20"
                               />
                             </div>
                           ) : (
@@ -508,7 +508,7 @@ export const Jaarbalans: React.FC = () => {
                         </td>
 
                         {/* Difference (Verschil) */}
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-2 py-3 text-center">
                           {diffVal === 0 ? (
                             <span className="inline-flex px-2 py-0.5 rounded text-xs font-mono font-bold bg-zinc-100 text-zinc-500 border border-zinc-200">
                               Kloppend
@@ -530,7 +530,7 @@ export const Jaarbalans: React.FC = () => {
                         </td>
 
                         {/* Row Actions */}
-                        <td className="px-4 py-4 text-right">
+                        <td className="px-2 py-3 text-right">
                           {editingId === bal.id ? (
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -574,40 +574,40 @@ export const Jaarbalans: React.FC = () => {
               <thead>
                 {/* Dual-layer header corresponding exactly to BRL100 Sheet 4 */}
                 <tr className="bg-zinc-950 text-white text-2xs uppercase tracking-wider text-center font-bold">
-                  <th className="px-4 py-3 border-r border-zinc-800 text-left font-sans font-bold" rowSpan={2}>Koudemiddel</th>
-                  <th className="px-4 py-3 border-r border-zinc-800" colSpan={3}>Totaal KM teruggewonnen uit installaties t.b.v. of a.g.v. (in kg)</th>
-                  <th className="px-4 py-3 border-r border-zinc-800" colSpan={3}>Totaal (bij)gevuld / verkocht t.b.v. of a.g.v. (in kg)</th>
-                  <th className="px-4 py-3" colSpan={2}>Totaal afgevoerd (in kg)</th>
+                  <th className="px-2 py-2.5 border-r border-zinc-800 text-left font-sans font-bold" rowSpan={2}>Koudemiddel</th>
+                  <th className="px-2 py-2.5 border-r border-zinc-800" colSpan={3}>Totaal KM teruggewonnen uit installaties t.b.v. of a.g.v. (in kg)</th>
+                  <th className="px-2 py-2.5 border-r border-zinc-800" colSpan={3}>Totaal (bij)gevuld / verkocht t.b.v. of a.g.v. (in kg)</th>
+                  <th className="px-2 py-2.5" colSpan={2}>Totaal afgevoerd (in kg)</th>
                 </tr>
                 <tr className="bg-zinc-900 text-zinc-300 text-2xs border-b border-zinc-200 text-center font-bold font-mono">
-                  <th className="px-4 py-2 border-r border-zinc-800">• Retrofit</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Onderhoud</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Ontmanteling</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Nieuwbouw</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Retrofit</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Lekkage</th>
-                  <th className="px-4 py-2 border-r border-zinc-800">• Vernietiging</th>
-                  <th className="px-4 py-2">• Recycling</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Retrofit</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Onderhoud</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Ontmanteling</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Nieuwbouw</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Retrofit</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Lekkage</th>
+                  <th className="px-2 py-1.5 border-r border-zinc-800">• Vernietiging</th>
+                  <th className="px-2 py-1.5">• Recycling</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 text-sm font-semibold">
+              <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
                 {compileKIReport().map((row, idx) => (
                   <tr key={idx} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-4 py-4 font-bold text-zinc-900 border-r border-zinc-100">{row.refrigerant_name}</td>
+                    <td className="px-2 py-2.5 font-bold text-zinc-900 border-r border-zinc-100">{row.refrigerant_name}</td>
                     
                     {/* Recovered retrofit, service, decommissioning */}
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_retrofit, row.gwp)}</td>
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_onderhoud, row.gwp)}</td>
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_ontmanteling, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_retrofit, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_onderhoud, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.rec_ontmanteling, row.gwp)}</td>
                     
                     {/* Filled new-build, retrofit, leak */}
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_nieuwbouw, row.gwp)}</td>
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_retrofit, row.gwp)}</td>
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_lekkage, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_nieuwbouw, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_retrofit, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.fill_lekkage, row.gwp)}</td>
                     
                     {/* Disposed destruction, recycling */}
-                    <td className="px-4 py-4 text-center border-r border-zinc-100">{renderCellWithCo2(row.disp_vernietiging, row.gwp)}</td>
-                    <td className="px-4 py-4 text-center">{renderCellWithCo2(row.disp_recycling, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center border-r border-zinc-100">{renderCellWithCo2(row.disp_vernietiging, row.gwp)}</td>
+                    <td className="px-2 py-2.5 text-center">{renderCellWithCo2(row.disp_recycling, row.gwp)}</td>
                   </tr>
                 ))}
               </tbody>

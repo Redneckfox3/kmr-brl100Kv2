@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { dbService, Refrigerant, Cylinder, Registration } from '../firebase';
+import { dbService } from '../firebase';
+import type { Refrigerant, Cylinder, Registration } from '../firebase';
 import { 
   Plus, Edit2, Trash2, X, ClipboardList, Info, 
   Search, Calendar, ChevronDown, CheckCircle2, AlertTriangle, AlertCircle, ArrowRightLeft, QrCode,
-  RefreshCw
+  RefreshCw, FileText, History
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Helper to determine the best back/scanning camera on launch
 const findPreferredCamera = (devices: any[]) => {
@@ -73,6 +76,10 @@ export const Cylinders: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRef, setSelectedRef] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+
+  // Tab and selection state for BRL100 Fleskaarten
+  const [activeTab, setActiveTab] = useState<'lijst' | 'fleskaarten'>('lijst');
+  const [selectedCylinderId, setSelectedCylinderId] = useState<string>('');
 
   // Form / Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -507,6 +514,82 @@ export const Cylinders: React.FC = () => {
     return { label: 'Geldig', color: 'text-emerald-600', icon: CheckCircle2 };
   };
 
+  const selectedCylinder = cylinders.find(c => c.id === selectedCylinderId);
+
+  const handleExportFleskaartPDF = (cyl: Cylinder) => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // Add nice header
+    doc.setFontSize(18);
+    doc.text(`BRL 100 - Fleskaart`, 14, 20);
+    
+    doc.setFontSize(10);
+    doc.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL')}`, 14, 26);
+    
+    doc.setDrawColor(228, 228, 231); // zinc-200
+    doc.line(14, 30, 196, 30);
+    
+    // Cylinder info block
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Cilindergegevens`, 14, 38);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Cilindernummer: ${cyl.cylinder_number}`, 14, 44);
+    doc.text(`Koudemiddel: ${cyl.refrigerant_name || 'Mengsel'}`, 14, 50);
+    doc.text(`Type: ${cyl.type.charAt(0).toUpperCase() + cyl.type.slice(1)}`, 14, 56);
+    doc.text(`Status: ${cyl.status.charAt(0).toUpperCase() + cyl.status.slice(1)}`, 100, 44);
+    doc.text(`Locatie: ${cyl.location || '-'}`, 100, 50);
+    doc.text(`Keuring tot: ${cyl.inspection_date}`, 100, 56);
+    
+    // Dynamic contents info
+    const contents = getCylinderContents(cyl.id);
+    const totalContent = contents.reduce((acc, c) => acc + c.weight, 0);
+    const tare = cyl.tare_weight_kg || 0;
+    const gross = tare + totalContent;
+    
+    doc.text(`Tarra gewicht: ${tare.toFixed(3)} kg`, 14, 66);
+    doc.text(`Max capaciteit: ${(cyl.max_capacity_kg || 0).toFixed(3)} kg`, 14, 72);
+    doc.text(`Huidige inhoud: ${totalContent.toFixed(3)} kg`, 100, 66);
+    doc.text(`Bruto gewicht: ${gross.toFixed(3)} kg`, 100, 72);
+    
+    doc.line(14, 78, 196, 78);
+    
+    // Transactions title
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Handelingenhistorie (Audit Trail)`, 14, 86);
+    
+    // Filter and sort registrations for table
+    const cylRegs = registrations.filter(r => r.cylinder_id === cyl.id);
+    const sortedRegs = [...cylRegs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    const tableColumn = ["Datum", "Installatie ID", "Handeling (Mutatie)", "Hoeveelheid", "Reden"];
+    const tableRows = sortedRegs.map(reg => {
+      let mutationLabel = reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1);
+      let amountSign = (reg.mutation === 'terugwinning' || reg.mutation === 'inkoop') ? `+${reg.amount_kg.toFixed(3)}` : `-${reg.amount_kg.toFixed(3)}`;
+      return [
+        reg.date,
+        reg.installation_id,
+        mutationLabel,
+        `${amountSign} kg`,
+        reg.reason || '-'
+      ];
+    });
+    
+    autoTable(doc, {
+      startY: 92,
+      head: [tableColumn],
+      body: tableRows,
+      theme: 'striped',
+      headStyles: { fillColor: [39, 39, 42] }, // zinc-800
+      styles: { fontSize: 9 }
+    });
+    
+    doc.save(`fleskaart_${cyl.cylinder_number}_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
       {/* Header */}
@@ -544,213 +627,414 @@ export const Cylinders: React.FC = () => {
         </p>
       </div>
 
-      {/* Search & Filters */}
-      <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Search input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Zoek op cilindernummer of locatie..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9 pr-4 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Refrigerant Filter */}
-        <div className="relative">
-          <select
-            value={selectedRef}
-            onChange={(e) => setSelectedRef(e.target.value)}
-            className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-          >
-            <option value="all">Alle Koudemiddelen</option>
-            {refrigerants.map((ref) => (
-              <option key={ref.id} value={ref.id}>{ref.name}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
-        </div>
-
-        {/* Status Filter */}
-        <div className="relative">
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-          >
-            <option value="all">Alle Statussen</option>
-            <option value="magazijn">In Magazijn</option>
-            <option value="monteur">Bij Monteur</option>
-            <option value="leeg">Leeg</option>
-            <option value="retour_leverancier">Retour Leverancier</option>
-            <option value="vermist">Vermist</option>
-          </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
-        </div>
+      {/* Tab bar */}
+      <div className="flex border-b border-zinc-200">
+        <button
+          onClick={() => setActiveTab('lijst')}
+          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-sm font-semibold transition-all ${
+            activeTab === 'lijst'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
+          }`}
+        >
+          <ClipboardList className="h-4 w-4" />
+          Cilinderlijst
+        </button>
+        <button
+          onClick={() => setActiveTab('fleskaarten')}
+          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-sm font-semibold transition-all ${
+            activeTab === 'fleskaarten'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
+          }`}
+        >
+          <History className="h-4 w-4" />
+          Fleskaarten (Historie)
+        </button>
       </div>
 
-      {/* Cylinders List */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      ) : filteredCylinders.length === 0 ? (
-        <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
-          <ClipboardList className="h-12 w-12 text-zinc-300 mx-auto mb-3" />
-          <p className="text-zinc-500 font-medium">Geen cilinders gevonden.</p>
-          <p className="text-zinc-400 text-sm mt-1">Pas uw zoekfilters aan of voeg een nieuwe cilinder toe.</p>
-        </div>
+      {activeTab === 'lijst' ? (
+        <>
+          {/* Search & Filters */}
+          <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Zoek op cilindernummer of locatie..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 pr-4 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Refrigerant Filter */}
+            <div className="relative">
+              <select
+                value={selectedRef}
+                onChange={(e) => setSelectedRef(e.target.value)}
+                className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">Alle Koudemiddelen</option>
+                {refrigerants.map((ref) => (
+                  <option key={ref.id} value={ref.id}>{ref.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+            </div>
+
+            {/* Status Filter */}
+            <div className="relative">
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="appearance-none pl-4 pr-10 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">Alle Statussen</option>
+                <option value="magazijn">In Magazijn</option>
+                <option value="monteur">Bij Monteur</option>
+                <option value="leeg">Leeg</option>
+                <option value="retour_leverancier">Retour Leverancier</option>
+                <option value="vermist">Vermist</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Cylinders List */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : filteredCylinders.length === 0 ? (
+            <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
+              <ClipboardList className="h-12 w-12 text-zinc-300 mx-auto mb-3" />
+              <p className="text-zinc-500 font-medium">Geen cilinders gevonden.</p>
+              <p className="text-zinc-400 text-sm mt-1">Pas uw zoekfilters aan of voeg een nieuwe cilinder toe.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
+                      <th className="px-6 py-4">Cilindernummer</th>
+                      <th className="px-6 py-4">Koudemiddel</th>
+                      <th className="px-6 py-4">Type</th>
+                      <th className="px-6 py-4">Gewicht & Capaciteit</th>
+                      <th className="px-6 py-4">Keuringsdatum</th>
+                      <th className="px-6 py-4">Status & Locatie</th>
+                      <th className="px-6 py-4 text-right">Acties</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 text-sm">
+                    {filteredCylinders.map((cyl) => {
+                      const insStatus = getInspectionStatus(cyl.inspection_date);
+                      const InsIcon = insStatus.icon;
+
+                      return (
+                        <tr key={cyl.id} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-zinc-900 font-mono">{cyl.cylinder_number}</td>
+                          <td className="px-6 py-4">
+                            <span className="font-medium text-zinc-800">{cyl.refrigerant_name}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="capitalize text-zinc-600">{cyl.type}</span>
+                          </td>
+                          <td className="px-6 py-4 font-mono text-zinc-600">
+                            <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(3) : '0.000'} kg</div>
+                            <div className="text-xs text-zinc-400 mb-1">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(3) : '0.000'} kg</div>
+                            
+                            {/* Dynamic gas contents listing with real-time audit weight calculation */}
+                            {(() => {
+                              const contents = getCylinderContents(cyl.id);
+                              const totalContent = contents.reduce((acc, c) => acc + c.weight, 0);
+                              const grossWeight = (cyl.tare_weight_kg || 0) + totalContent;
+                              const fillPercent = cyl.max_capacity_kg > 0 ? (totalContent / cyl.max_capacity_kg) * 100 : 0;
+
+                              return (
+                                <div className="mt-2 pt-2 border-t border-dashed border-zinc-200 space-y-1">
+                                  {contents.length > 0 ? (
+                                    <>
+                                      <div className="text-2xs font-bold text-zinc-500 uppercase tracking-wider">Inhoud:</div>
+                                      <div className="space-y-0.5 pl-1.5 border-l-2 border-blue-500">
+                                        {contents.map((c, idx) => (
+                                          <div key={idx} className="text-2xs text-zinc-700 font-medium">
+                                            {c.name}: <span className="font-bold text-zinc-900">{c.weight.toFixed(3)} kg</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="text-2xs font-semibold text-purple-600 mt-1 flex items-center justify-between">
+                                        <span>Bruto: <span className="font-bold">{grossWeight.toFixed(3)} kg</span></span>
+                                        <span className="text-zinc-400 font-normal">{fillPercent.toFixed(0)}% gevuld</span>
+                                      </div>
+                                      {cyl.max_capacity_kg > 0 && (
+                                        <div className="w-full bg-zinc-100 rounded-full h-1 overflow-hidden mt-1">
+                                          <div 
+                                            className={`h-full rounded-full transition-all ${fillPercent > 90 ? 'bg-red-500' : fillPercent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                            style={{ width: `${Math.min(fillPercent, 100)}%` }}
+                                          ></div>
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <div className="text-2xs italic text-zinc-400">Leeg / Ongebruikt</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1.5">
+                              <InsIcon className={`h-4 w-4 ${insStatus.color}`} />
+                              <span className={`font-mono text-xs ${insStatus.color}`}>{cyl.inspection_date}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="capitalize font-medium text-zinc-800">
+                              {cyl.status ? cyl.status.replace('_', ' ') : 'Onbekend'}
+                            </div>
+                            {cyl.location && (
+                              <div className="text-xs text-zinc-500 mt-0.5">{cyl.location}</div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex flex-col md:flex-row items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenTransModal(cyl)}
+                                className="p-1.5 rounded-md text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1"
+                                title="Registreer verbruik uit deze cilinder"
+                              >
+                                <ArrowRightLeft className="h-4 w-4" />
+                                <span className="text-xs font-semibold">Verbruik</span>
+                              </button>
+
+                              {/* Quick Legen Button for Mixfles */}
+                              {cyl.type === 'mix' && (
+                                <button
+                                  onClick={() => handleEmptyMixCylinder(cyl)}
+                                  disabled={getCylinderContents(cyl.id).length === 0}
+                                  className={`p-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                                    getCylinderContents(cyl.id).length > 0
+                                      ? "text-red-600 hover:bg-red-50 cursor-pointer"
+                                      : "text-zinc-300 cursor-not-allowed opacity-50"
+                                  }`}
+                                  title={
+                                    getCylinderContents(cyl.id).length > 0
+                                      ? "Mixfles leegmaken voor vernietiging"
+                                      : "Mixfles is al leeg"
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="text-xs font-semibold">Legen</span>
+                                </button>
+                              )}
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    setSelectedCylinderId(cyl.id);
+                                    setActiveTab('fleskaarten');
+                                  }}
+                                  className="p-1.5 rounded-md text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                  title="Bekijk fleskaart (historie) van deze cilinder"
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => setActiveQrCylinder(cyl)}
+                                  className="p-1.5 rounded-md text-zinc-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                                  title="Bekijk & print QR-code van deze cilinder"
+                                >
+                                  <QrCode className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleOpenEditModal(cyl)}
+                                  className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition-colors"
+                                  title="Bewerken"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(cyl.id)}
+                                  className="p-1.5 rounded-md text-zinc-500 hover:text-red-600 hover:bg-zinc-100 transition-colors"
+                                  title="Verwijderen"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
-                  <th className="px-6 py-4">Cilindernummer</th>
-                  <th className="px-6 py-4">Koudemiddel</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Gewicht & Capaciteit</th>
-                  <th className="px-6 py-4">Keuringsdatum</th>
-                  <th className="px-6 py-4">Status & Locatie</th>
-                  <th className="px-6 py-4 text-right">Acties</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 text-sm">
-                {filteredCylinders.map((cyl) => {
-                  const insStatus = getInspectionStatus(cyl.inspection_date);
-                  const InsIcon = insStatus.icon;
+        /* Fleskaarten Tab View */
+        <div className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="w-full sm:max-w-md">
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                Selecteer Cilinder (Fles)
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedCylinderId}
+                  onChange={(e) => setSelectedCylinderId(e.target.value)}
+                  className="appearance-none pl-4 pr-10 py-2.5 w-full rounded-lg border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">-- Kies een cilinder --</option>
+                  {cylinders.map((cyl) => (
+                    <option key={cyl.id} value={cyl.id}>
+                      {cyl.cylinder_number} ({cyl.refrigerant_name || 'Mengsel'}) - {cyl.type}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {selectedCylinder && (
+              <button
+                onClick={() => handleExportFleskaartPDF(selectedCylinder)}
+                className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
+              >
+                <FileText className="h-4 w-4" />
+                Exporteer Fleskaart (PDF)
+              </button>
+            )}
+          </div>
+
+          {selectedCylinder ? (
+            <div className="space-y-6">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
+                  <div className="text-2xs font-bold text-zinc-400 uppercase tracking-wider">Cilinder</div>
+                  <div className="text-lg font-extrabold text-zinc-900 mt-1 font-mono">{selectedCylinder.cylinder_number}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5 capitalize">{selectedCylinder.type}</div>
+                </div>
+
+                <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
+                  <div className="text-2xs font-bold text-zinc-400 uppercase tracking-wider">Koudemiddel</div>
+                  <div className="text-lg font-extrabold text-zinc-900 mt-1">{selectedCylinder.refrigerant_name || 'Onbekend'}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Tarra: {selectedCylinder.tare_weight_kg ? Number(selectedCylinder.tare_weight_kg).toFixed(3) : '0.000'} kg</div>
+                </div>
+
+                <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
+                  <div className="text-2xs font-bold text-zinc-400 uppercase tracking-wider">Huidige Inhoud</div>
+                  {(() => {
+                    const contents = getCylinderContents(selectedCylinder.id);
+                    const totalContent = contents.reduce((acc, c) => acc + c.weight, 0);
+                    return (
+                      <>
+                        <div className="text-lg font-extrabold text-zinc-900 mt-1">{totalContent.toFixed(3)} kg</div>
+                        <div className="text-xs text-zinc-500 mt-0.5 font-mono">
+                          Bruto: {((selectedCylinder.tare_weight_kg || 0) + totalContent).toFixed(3)} kg
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
+                  <div className="text-2xs font-bold text-zinc-400 uppercase tracking-wider">Status & Locatie</div>
+                  <div className="text-lg font-extrabold text-zinc-900 mt-1 capitalize">{selectedCylinder.status}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5 truncate">Locatie: {selectedCylinder.location || '-'}</div>
+                </div>
+              </div>
+
+              {/* Dynamic specification of gases inside */}
+              {(() => {
+                const contents = getCylinderContents(selectedCylinder.id);
+                if (contents.length > 0) {
+                  return (
+                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                      <div className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-2">Huidige gasspecificatie in de cilinder:</div>
+                      <div className="flex flex-wrap gap-3">
+                        {contents.map((c) => (
+                          <span key={c.refId} className="inline-flex items-center gap-1.5 bg-white border border-blue-200 text-blue-700 px-3 py-1.5 rounded-md text-xs font-semibold shadow-2xs font-mono">
+                            {c.name}: {c.weight.toFixed(3)} kg
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Ledger Table */}
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <History className="h-4 w-4 text-zinc-400" />
+                  Handelingenhistorie (Audit Trail)
+                </h3>
+                {(() => {
+                  const cylRegs = registrations.filter(r => r.cylinder_id === selectedCylinder.id);
+                  const sortedRegs = [...cylRegs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                  if (sortedRegs.length === 0) {
+                    return (
+                      <div className="text-center py-8 border border-dashed border-zinc-200 rounded-lg bg-zinc-50 text-zinc-500 text-sm font-medium">
+                        Geen eerdere handelingen geregistreerd voor deze cilinder.
+                      </div>
+                    );
+                  }
 
                   return (
-                    <tr key={cyl.id} className="hover:bg-zinc-50/50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-zinc-900 font-mono">{cyl.cylinder_number}</td>
-                      <td className="px-6 py-4">
-                        <span className="font-medium text-zinc-800">{cyl.refrigerant_name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="capitalize text-zinc-600">{cyl.type}</span>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-zinc-600">
-                        <div>Tarra: {(cyl.tare_weight_kg !== undefined && cyl.tare_weight_kg !== null) ? Number(cyl.tare_weight_kg).toFixed(3) : '0.000'} kg</div>
-                        <div className="text-xs text-zinc-400 mb-1">Max: {(cyl.max_capacity_kg !== undefined && cyl.max_capacity_kg !== null) ? Number(cyl.max_capacity_kg).toFixed(3) : '0.000'} kg</div>
-                        
-                        {/* Dynamic gas contents listing with real-time audit weight calculation */}
-                        {(() => {
-                          const contents = getCylinderContents(cyl.id);
-                          const totalContent = contents.reduce((acc, c) => acc + c.weight, 0);
-                          const grossWeight = (cyl.tare_weight_kg || 0) + totalContent;
-                          const fillPercent = cyl.max_capacity_kg > 0 ? (totalContent / cyl.max_capacity_kg) * 100 : 0;
-
-                          return (
-                            <div className="mt-2 pt-2 border-t border-dashed border-zinc-200 space-y-1">
-                              {contents.length > 0 ? (
-                                <>
-                                  <div className="text-2xs font-bold text-zinc-500 uppercase tracking-wider">Inhoud:</div>
-                                  <div className="space-y-0.5 pl-1.5 border-l-2 border-blue-500">
-                                    {contents.map((c, idx) => (
-                                      <div key={idx} className="text-2xs text-zinc-700 font-medium">
-                                        {c.name}: <span className="font-bold text-zinc-900">{c.weight.toFixed(3)} kg</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                  <div className="text-2xs font-semibold text-purple-600 mt-1 flex items-center justify-between">
-                                    <span>Bruto: <span className="font-bold">{grossWeight.toFixed(3)} kg</span></span>
-                                    <span className="text-zinc-400 font-normal">{fillPercent.toFixed(0)}% gevuld</span>
-                                  </div>
-                                  {cyl.max_capacity_kg > 0 && (
-                                    <div className="w-full bg-zinc-100 rounded-full h-1 overflow-hidden mt-1">
-                                      <div 
-                                        className={`h-full rounded-full transition-all ${fillPercent > 90 ? 'bg-red-500' : fillPercent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
-                                        style={{ width: `${Math.min(fillPercent, 100)}%` }}
-                                      ></div>
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                <div className="text-2xs italic text-zinc-400">Leeg / Ongebruikt</div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5">
-                          <InsIcon className={`h-4 w-4 ${insStatus.color}`} />
-                          <span className={`font-mono text-xs ${insStatus.color}`}>{cyl.inspection_date}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="capitalize font-medium text-zinc-800">
-                          {cyl.status ? cyl.status.replace('_', ' ') : 'Onbekend'}
-                        </div>
-                        {cyl.location && (
-                          <div className="text-xs text-zinc-500 mt-0.5">{cyl.location}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col md:flex-row items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenTransModal(cyl)}
-                            className="p-1.5 rounded-md text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1"
-                            title="Registreer verbruik uit deze cilinder"
-                          >
-                            <ArrowRightLeft className="h-4 w-4" />
-                            <span className="text-xs font-semibold">Verbruik</span>
-                          </button>
-
-                          {/* Quick Legen Button for Mixfles */}
-                          {cyl.type === 'mix' && (
-                            <button
-                              onClick={() => handleEmptyMixCylinder(cyl)}
-                              disabled={getCylinderContents(cyl.id).length === 0}
-                              className={`p-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                                getCylinderContents(cyl.id).length > 0
-                                  ? "text-red-600 hover:bg-red-50 cursor-pointer"
-                                  : "text-zinc-300 cursor-not-allowed opacity-50"
-                              }`}
-                              title={
-                                getCylinderContents(cyl.id).length > 0
-                                  ? "Mixfles leegmaken voor vernietiging"
-                                  : "Mixfles is al leeg"
-                              }
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              <span className="text-xs font-semibold">Legen</span>
-                            </button>
-                          )}
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setActiveQrCylinder(cyl)}
-                              className="p-1.5 rounded-md text-zinc-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
-                              title="Bekijk & print QR-code van deze cilinder"
-                            >
-                              <QrCode className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenEditModal(cyl)}
-                              className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition-colors"
-                              title="Bewerken"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(cyl.id)}
-                              className="p-1.5 rounded-md text-zinc-500 hover:text-red-600 hover:bg-zinc-100 transition-colors"
-                              title="Verwijderen"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
+                    <div className="border border-zinc-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-zinc-200 bg-zinc-50 text-2xs font-bold text-zinc-500 uppercase tracking-wider">
+                            <th className="px-6 py-3">Datum</th>
+                            <th className="px-6 py-3">Installatie ID</th>
+                            <th className="px-6 py-3">Handeling (Mutatie)</th>
+                            <th className="px-6 py-3">Hoeveelheid</th>
+                            <th className="px-6 py-3">Reden</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 text-sm">
+                          {sortedRegs.map((reg) => {
+                            const isPositive = reg.mutation === 'terugwinning' || reg.mutation === 'inkoop';
+                            return (
+                              <tr key={reg.id} className="hover:bg-zinc-50/50 transition-colors">
+                                <td className="px-6 py-3 font-mono text-zinc-500 text-xs">{reg.date}</td>
+                                <td className="px-6 py-3 font-semibold text-zinc-900">{reg.installation_id}</td>
+                                <td className="px-6 py-3 capitalize text-zinc-600">
+                                  {reg.mutation}
+                                </td>
+                                <td className="px-6 py-3 font-mono font-bold">
+                                  <span className={isPositive ? 'text-emerald-600' : 'text-blue-600'}>
+                                    {isPositive ? '+' : '-'}{reg.amount_kg.toFixed(3)} kg
+                                  </span>
+                                </td>
+                                <td className="px-6 py-3 text-zinc-500">{reg.reason || '-'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12 border-2 border-dashed border-zinc-200 rounded-xl bg-zinc-50">
+              <ClipboardList className="h-12 w-12 text-zinc-300 mx-auto mb-3" />
+              <p className="text-zinc-500 font-semibold text-base">Geen cilinder geselecteerd</p>
+              <p className="text-zinc-400 text-xs mt-1 max-w-sm mx-auto">
+                Kies hierboven een cilinder om de volledige BRL100 fleskaart en handelingenhistorie te bekijken en te exporteren.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

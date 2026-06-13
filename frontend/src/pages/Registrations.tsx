@@ -18,6 +18,9 @@ export const Registrations: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRef, setSelectedRef] = useState('all');
   const [selectedMutation, setSelectedMutation] = useState('all');
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>(new Date().getFullYear());
+
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i);
 
   // Form / Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -144,12 +147,15 @@ export const Registrations: React.FC = () => {
   };
 
   // Filter registrations
+  // Filter registrations
   const filteredRegistrations = registrations.filter((reg) => {
+    const regYear = new Date(reg.date).getFullYear();
+    const matchesYear = selectedYear === 'all' || regYear === selectedYear;
     const matchesSearch = reg.installation_id.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (reg.reason && reg.reason.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesRef = selectedRef === 'all' || reg.refrigerant_id === selectedRef;
     const matchesMutation = selectedMutation === 'all' || reg.mutation === selectedMutation;
-    return matchesSearch && matchesRef && matchesMutation;
+    return matchesYear && matchesSearch && matchesRef && matchesMutation;
   });
 
   const getSelectedRefrigerantGwp = () => {
@@ -168,7 +174,10 @@ export const Registrations: React.FC = () => {
     const doc = new jsPDF('l', 'mm', 'a4');
 
     doc.setFontSize(18);
-    doc.text('Installatie Registraties', 14, 22);
+    const titleText = selectedYear === 'all' 
+      ? 'Installatie Registraties (Alle jaren)' 
+      : `Installatie Registraties (${selectedYear})`;
+    doc.text(titleText, 14, 22);
 
     const tableColumn = [
       "Datum", "Installatie ID", "Type", "Nominale Vulling",
@@ -181,7 +190,7 @@ export const Registrations: React.FC = () => {
         reg.date,
         reg.installation_id,
         reg.installation_type || '-',
-        reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-',
+        reg.nominal_charge_kg ? `${reg.nominal_charge_kg.toFixed(3)} kg` : '-',
         reg.refrigerant_name || '-',
         reg.mutation.charAt(0).toUpperCase() + reg.mutation.slice(1),
         `${reg.amount_kg.toFixed(2)} kg`,
@@ -199,7 +208,8 @@ export const Registrations: React.FC = () => {
       headStyles: { fillColor: [39, 39, 42] } // zinc-800
     });
 
-    doc.save(`registraties_${new Date().toISOString().split('T')[0]}.pdf`);
+    const fileSuffix = selectedYear === 'all' ? 'alle_jaren' : selectedYear;
+    doc.save(`registraties_${fileSuffix}_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (
@@ -212,7 +222,23 @@ export const Registrations: React.FC = () => {
             Beheer en registreer handelingen (vulling, terugwinning, etc.) op installatieniveau.
           </p>
         </div>
-        <div className="flex items-center gap-3 self-start sm:self-center">
+        <div className="flex items-center gap-3 self-start sm:sm:self-center">
+          {/* Year Picker */}
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+              className="appearance-none pl-9 pr-8 py-2.5 border border-zinc-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">Alle jaren</option>
+              {years.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
+          </div>
+
           <button
             onClick={handleExportPDF}
             className="inline-flex items-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-medium px-4 py-2.5 rounded-lg text-sm shadow-sm transition-all"
@@ -319,7 +345,7 @@ export const Registrations: React.FC = () => {
                     <td className="px-4 py-3 text-zinc-500 font-mono text-xs">{reg.date}</td>
                     <td className="px-4 py-3 font-bold text-zinc-900">{reg.installation_id}</td>
                     <td className="px-4 py-3 text-zinc-600">{reg.installation_type || '-'}</td>
-                    <td className="px-4 py-3 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg} kg` : '-'}</td>
+                    <td className="px-4 py-3 text-zinc-600 font-mono">{reg.nominal_charge_kg ? `${reg.nominal_charge_kg.toFixed(3)} kg` : '-'}</td>
                     <td className="px-4 py-3">
                       <span className="font-medium text-zinc-800">{reg.refrigerant_name}</span>
                       {reg.cylinder_id && cylinders.length > 0 && (
@@ -440,9 +466,9 @@ export const Registrations: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.001"
                   min="0"
-                  placeholder="Bijv. 17.5"
+                  placeholder="Bijv. 17.500"
                   value={nominalChargeKg}
                   onChange={(e) => setNominalChargeKg(e.target.value)}
                   className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
