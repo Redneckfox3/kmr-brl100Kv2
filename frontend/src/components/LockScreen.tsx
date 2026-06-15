@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Lock, Eye, EyeOff, Snowflake } from 'lucide-react';
+import { Lock, Eye, EyeOff } from 'lucide-react';
+import meijerLogo from '../Meijer_logo.jpeg';
 
 interface LockScreenProps {
   onUnlock: (password: string) => boolean;
@@ -33,8 +34,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
 
         {/* Header/Logo */}
         <div className="flex flex-col items-center text-center mb-8">
-          <div className="bg-blue-600 p-3.5 rounded-2xl shadow-lg shadow-blue-600/30 mb-4">
-            <Snowflake className="h-8 w-8 text-white animate-spin-slow" />
+          <div className="bg-white p-2.5 rounded-2xl shadow-lg shadow-white/5 mb-4 border border-zinc-800 flex items-center justify-center overflow-hidden w-40 h-20">
+            <img src={meijerLogo} alt="Meijer Veendam Logo" className="object-contain max-w-full max-h-full" />
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-white mb-1.5">
             KMR Registratiesysteem

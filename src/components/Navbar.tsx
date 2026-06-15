@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Snowflake, ClipboardList, BarChart3, Settings as SettingsIcon, Menu, X, Cloud, Database, Cylinder as CylinderIcon } from 'lucide-react';
 import { dbService } from '../firebase';
+import meijerLogo from '../Meijer_logo.jpeg';
 
 export const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -23,15 +24,15 @@ export const Navbar: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Snowflake className="h-6 w-6 text-white animate-spin-slow" />
+          <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+            <div className="bg-white p-1 rounded-lg flex items-center justify-center overflow-hidden w-16 h-10 border border-zinc-800">
+              <img src={meijerLogo} alt="Meijer Veendam Logo" className="object-contain max-w-full max-h-full" />
             </div>
             <div>
               <span className="font-bold text-lg tracking-wide block">KMR</span>
               <span className="text-xs text-zinc-400 font-mono">BRL100 v2</span>
             </div>
-          </div>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-2">
