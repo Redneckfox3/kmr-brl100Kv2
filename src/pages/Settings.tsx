@@ -4,7 +4,7 @@ import type { Refrigerant, FirebaseConfig } from '../firebase';
 import { 
   Plus, Save, Cloud, 
   HelpCircle, Trash2, Eye, EyeOff, Check, Layers, Edit2, X, PlusCircle, Calendar as CalendarIcon,
-  Database, Mail, Download, Info
+  Database, Mail, Download, Info, Lock
 } from 'lucide-react';
 
 export const Settings: React.FC = () => {
@@ -48,10 +48,116 @@ export const Settings: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
+  // Password lock state
+  const [hasPassword, setHasPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const [showSecurityPasswords, setShowSecurityPasswords] = useState(false);
+
   useEffect(() => {
     loadRefrigerants();
     loadFirebaseConfig();
+    
+    const checkPassword = async () => {
+      try {
+        const password = await dbService.getAppPassword();
+        setHasPassword(!!password);
+      } catch (e) {
+        console.error("Failed to check app password on load:", e);
+        setHasPassword(!!localStorage.getItem('kmr_app_password'));
+      }
+    };
+    checkPassword();
   }, []);
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    if (!newPassword) {
+      setSecurityError("Vul een wachtwoord in.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSecurityError("Wachtwoorden komen niet overeen.");
+      return;
+    }
+
+    try {
+      await dbService.saveAppPassword(newPassword);
+      setHasPassword(true);
+      setNewPassword('');
+      setConfirmPassword('');
+      setSecuritySuccess("Toegangswachtwoord succesvol ingesteld in de cloud! De app is nu overal beveiligd.");
+    } catch (err: any) {
+      setSecurityError(err.message || "Fout bij opslaan wachtwoord.");
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    const savedPassword = localStorage.getItem('kmr_app_password');
+    if (currentPassword !== savedPassword) {
+      setSecurityError("Huidige wachtwoord is onjuist.");
+      return;
+    }
+
+    if (!newPassword) {
+      setSecurityError("Vul een nieuw wachtwoord in.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSecurityError("Wachtwoorden komen niet overeen.");
+      return;
+    }
+
+    try {
+      await dbService.saveAppPassword(newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setSecuritySuccess("Wachtwoord succesvol gewijzigd in de cloud!");
+    } catch (err: any) {
+      setSecurityError(err.message || "Fout bij wijzigen wachtwoord.");
+    }
+  };
+
+  const handleDisablePassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    if (!currentPassword) {
+      setSecurityError("Vul uw huidige wachtwoord in om de beveiliging uit te schakelen.");
+      return;
+    }
+
+    const savedPassword = localStorage.getItem('kmr_app_password');
+    if (currentPassword !== savedPassword) {
+      setSecurityError("Huidige wachtwoord is onjuist.");
+      return;
+    }
+
+    if (window.confirm("Weet u zeker dat u de wachtwoordbeveiliging wilt uitschakelen? Iedereen kan de app dan weer direct openen.")) {
+      try {
+        await dbService.saveAppPassword(null);
+        setHasPassword(false);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setSecuritySuccess("Wachtwoordbeveiliging is uitgeschakeld.");
+      } catch (err: any) {
+        setSecurityError(err.message || "Fout bij uitschakelen.");
+      }
+    }
+  };
 
   const loadRefrigerants = async () => {
     setLoadingRefs(true);
@@ -741,6 +847,145 @@ export const Settings: React.FC = () => {
                 )}
               </div>
             </form>
+          </div>
+
+          {/* App Beveiliging (Toegangswachtwoord) Card */}
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-6 space-y-4">
+            <h2 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+              <Lock className="h-5 w-5 text-blue-600" />
+              App Beveiliging (Toegangswachtwoord)
+            </h2>
+            <p className="text-sm text-zinc-600">
+              Beveilig uw koudemiddelregistratie-app met een algemeen toegangswachtwoord. Dit wachtwoord is lokaal op dit apparaat actief en voorkomt dat onbevoegden uw gegevens kunnen inzien.
+            </p>
+
+            {securityError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">
+                {securityError}
+              </div>
+            )}
+            {securitySuccess && (
+              <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg text-sm border border-emerald-100 font-medium">
+                {securitySuccess}
+              </div>
+            )}
+
+            {!hasPassword ? (
+              <form onSubmit={handleSetPassword} className="space-y-4">
+                <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-850">
+                  Er is momenteel <strong>geen</strong> toegangswachtwoord ingesteld. Iedereen met toegang tot dit apparaat kan uw registraties openen.
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-2xs font-bold text-zinc-500 uppercase tracking-wider mb-1 flex justify-between items-center">
+                      <span>Nieuw Wachtwoord *</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setShowSecurityPasswords(!showSecurityPasswords)}
+                        className="text-2xs text-blue-600 hover:text-blue-700 font-normal"
+                      >
+                        {showSecurityPasswords ? "Verbergen" : "Tonen"}
+                      </button>
+                    </label>
+                    <input
+                      type={showSecurityPasswords ? "text" : "password"}
+                      required
+                      placeholder="Wachtwoord"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                      Bevestig Wachtwoord *
+                    </label>
+                    <input
+                      type={showSecurityPasswords ? "text" : "password"}
+                      required
+                      placeholder="Bevestig"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg text-sm shadow-sm transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Lock className="h-4 w-4" />
+                  Wachtwoord inschakelen
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleChangePassword} className="space-y-4">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-xs text-emerald-800">
+                  De app is momenteel <strong>beveiligd</strong> met een toegangswachtwoord. Bij het openen van de app op dit apparaat moet dit wachtwoord worden ingevoerd.
+                </div>
+                <div>
+                  <label className="block text-2xs font-bold text-zinc-500 uppercase tracking-wider mb-1 flex justify-between items-center">
+                    <span>Huidig Wachtwoord *</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowSecurityPasswords(!showSecurityPasswords)}
+                      className="text-2xs text-blue-600 hover:text-blue-700 font-normal"
+                    >
+                      {showSecurityPasswords ? "Verbergen" : "Tonen"}
+                    </button>
+                  </label>
+                  <input
+                    type={showSecurityPasswords ? "text" : "password"}
+                    required
+                    placeholder="Huidig wachtwoord"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-zinc-100 pt-3">
+                  <div>
+                    <label className="block text-2xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                      Nieuw Wachtwoord (optioneel)
+                    </label>
+                    <input
+                      type={showSecurityPasswords ? "text" : "password"}
+                      placeholder="Nieuw wachtwoord"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                      Bevestig Nieuw Wachtwoord
+                    </label>
+                    <input
+                      type={showSecurityPasswords ? "text" : "password"}
+                      placeholder="Bevestig"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="px-3 py-2 w-full rounded-lg border border-zinc-200 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-grow bg-zinc-900 hover:bg-zinc-850 text-white font-medium py-2 rounded-lg text-sm shadow-sm transition-colors"
+                  >
+                    Wachtwoord wijzigen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDisablePassword}
+                    className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Uitschakelen
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
           {/* Back-up & Herstel Card */}

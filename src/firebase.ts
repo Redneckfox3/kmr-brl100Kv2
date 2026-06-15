@@ -9,7 +9,8 @@ import {
   doc, 
   query, 
   where, 
-  setDoc
+  setDoc,
+  getDoc
 } from "firebase/firestore";
 
 export interface Refrigerant {
@@ -881,6 +882,65 @@ class DatabaseService {
     }
 
     return { refrigerantsMigrated, registrationsMigrated };
+  }
+
+  // --- App Password Management (Cloud-synced or Local) ---
+
+  public async getAppPassword(): Promise<string | null> {
+    if (this.isFirebase && this.db) {
+      try {
+        const docRef = doc(this.db, "app_settings", "security");
+        const snap = await this.withTimeout(getDoc(docRef), 3500);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data && data.enabled && data.password) {
+            // Also cache to localStorage as fallback
+            localStorage.setItem("kmr_app_password", data.password);
+            return data.password;
+          }
+        }
+        // If doc does not exist or password is not enabled, clear local cache
+        localStorage.removeItem("kmr_app_password");
+        return null;
+      } catch (e) {
+        console.error("Failed to fetch app password from Firebase, falling back to local storage cache:", e);
+        // Fallback to local storage cache in case of timeout/network errors
+        return localStorage.getItem("kmr_app_password");
+      }
+    }
+    // Fallback to purely local storage
+    return localStorage.getItem("kmr_app_password");
+  }
+
+  public async saveAppPassword(password: string | null): Promise<void> {
+    if (password) {
+      localStorage.setItem("kmr_app_password", password);
+    } else {
+      localStorage.removeItem("kmr_app_password");
+    }
+
+    if (this.isFirebase && this.db) {
+      try {
+        const docRef = doc(this.db, "app_settings", "security");
+        if (password) {
+          await setDoc(docRef, {
+            password: password,
+            enabled: true,
+            updated_at: new Date().toISOString()
+          });
+        } else {
+          // Disable passcode
+          await setDoc(docRef, {
+            password: null,
+            enabled: false,
+            updated_at: new Date().toISOString()
+          });
+        }
+      } catch (e) {
+        console.error("Failed to save app password to Firebase:", e);
+        throw new Error("Fout bij opslaan wachtwoord in de cloud database: " + (e as Error).message);
+      }
+    }
   }
 }
 
